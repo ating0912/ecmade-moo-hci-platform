@@ -913,7 +913,11 @@ def run_app(results_dir):
 
 def build_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--results", type=str, default="")
+    parser.add_argument(
+        "--results",
+        type=str,
+        default="results_ecmade_moo_hci",
+    )
     return parser
 
 
