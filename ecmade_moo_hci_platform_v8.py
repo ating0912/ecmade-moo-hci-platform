@@ -25,6 +25,7 @@ from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
@@ -216,7 +217,6 @@ def init_state():
 
 def render_pf_overlay(records, K):
     st.subheader("PF Overlay Comparison")
-
     st.markdown(
         """
         **圖說：**  
@@ -225,53 +225,36 @@ def render_pf_overlay(records, K):
         """
     )
 
-    fig = go.Figure()
-
-    colors = {
-        "NSGA-II": "#5DADE2",
-        "ECMADE-MOO": "#E74C3C",
-    }
-
-    legend_added = set()
+    fig, ax = plt.subplots(figsize=(8, 5))
+    colors = {"NSGA-II": "tab:blue", "ECMADE-MOO": "tab:red"}
+    shown = set()
 
     for r in records:
         if r["K"] != K:
             continue
-
         risk, ret = pf_to_risk_return(r["PF_F"])
         alg = r["algorithm"]
-
-        fig.add_trace(
-            go.Scatter(
-                x=risk,
-                y=ret,
-                mode="markers",
-                marker=dict(
-                    size=5,
-                    opacity=0.28,
-                    color=colors.get(alg, "gray"),
-                ),
-                name=alg,
-                legendgroup=alg,
-                showlegend=alg not in legend_added,
-                hovertemplate=f"{alg}<br>Risk=%{{x:.6g}}<br>Return=%{{y:.6g}}<extra></extra>",
-            )
+        label = alg if alg not in shown else None
+        ax.scatter(
+            risk,
+            ret,
+            s=16,
+            alpha=0.35,
+            color=colors.get(alg, "gray"),
+            label=label,
         )
-        legend_added.add(alg)
+        shown.add(alg)
 
-    fig.update_layout(
-        title="PF Overlay：多次 run 的 Pareto Front 分布",
-        xaxis_title="Risk",
-        yaxis_title="Expected Return",
-        height=550,
-    )
-
-    st.plotly_chart(fig, width="stretch", key="step1_pf_overlay")
+    ax.set_title("PF Overlay：多次 run 的 Pareto Front 分布")
+    ax.set_xlabel("Risk")
+    ax.set_ylabel("Expected Return")
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+    st.pyplot(fig, clear_figure=True)
 
 
 def render_heatmap_comparison(heatmap_points, K):
     st.subheader("PF Heatmap Comparison")
-
     st.markdown(
         """
         **圖說：**  
@@ -297,23 +280,23 @@ def render_heatmap_comparison(heatmap_points, K):
                 st.warning(f"{alg} 沒有資料")
                 continue
 
-            fig = px.density_heatmap(
-                df,
-                x="risk",
-                y="expected_return",
-                nbinsx=30,
-                nbinsy=30,
-                color_continuous_scale="YlOrRd",
-                title=f"{alg} Heatmap",
+            fig, ax = plt.subplots(figsize=(6, 4.5))
+            h = ax.hist2d(
+                df["risk"],
+                df["expected_return"],
+                bins=30,
+                cmap="YlOrRd",
             )
+            fig.colorbar(h[3], ax=ax, label="出現次數")
+            ax.set_title(f"{alg} Heatmap")
+            ax.set_xlabel("Risk")
+            ax.set_ylabel("Expected Return")
+            ax.grid(False)
+            st.pyplot(fig, clear_figure=True)
 
-            fig.update_layout(height=450)
-            st.plotly_chart(fig, width="stretch", key=f"step1_heatmap_{alg}_{K}")
 
-
-def render_single_heatmap(heatmap_points, algorithm, K, key_suffix):
+def render_single_heatmap(heatmap_points, algorithm, K, key_suffix=""):
     st.subheader(f"{algorithm} PF Heatmap")
-
     st.markdown(
         """
         **圖說：**  
@@ -335,18 +318,18 @@ def render_single_heatmap(heatmap_points, algorithm, K, key_suffix):
         st.warning(f"{algorithm}, K={K} 沒有 heatmap 資料")
         return
 
-    fig = px.density_heatmap(
-        df,
-        x="risk",
-        y="expected_return",
-        nbinsx=30,
-        nbinsy=30,
-        color_continuous_scale="YlOrRd",
-        title=f"{algorithm} Heatmap｜K={K}",
+    fig, ax = plt.subplots(figsize=(8, 5))
+    h = ax.hist2d(
+        df["risk"],
+        df["expected_return"],
+        bins=30,
+        cmap="YlOrRd",
     )
-    fig.update_layout(height=500)
-
-    st.plotly_chart(fig, width="stretch", key=f"single_heatmap_{algorithm}_{K}_{key_suffix}")
+    fig.colorbar(h[3], ax=ax, label="出現次數")
+    ax.set_title(f"{algorithm} Heatmap｜K={K}")
+    ax.set_xlabel("Risk")
+    ax.set_ylabel("Expected Return")
+    st.pyplot(fig, clear_figure=True)
 
 
 def render_metrics_table(metrics, K):
@@ -418,56 +401,47 @@ def render_metrics_table(metrics, K):
 
 
 def render_recommendation_pf(PF_F, f):
-    fig = go.Figure()
+    fig, ax = plt.subplots(figsize=(8, 5))
 
     risk, ret = pf_to_risk_return(PF_F)
 
-    fig.add_trace(
-        go.Scatter(
-            x=risk,
-            y=ret,
-            mode="markers",
-            marker=dict(
-                size=7,
-                opacity=0.45,
-                color="#5DADE2",
-            ),
-            name="Pareto solutions",
-            hovertemplate="Risk=%{x:.6g}<br>Return=%{y:.6g}<extra></extra>",
-        )
+    ax.scatter(
+        risk,
+        ret,
+        s=28,
+        alpha=0.45,
+        color="tab:blue",
+        label="Pareto solutions",
     )
 
-    fig.add_trace(
-        go.Scatter(
-            x=[float(f[0])],
-            y=[float(-f[1])],
-            mode="markers+text",
-            marker=dict(
-                size=30,
-                color="red",
-                symbol="star",
-                line=dict(width=4, color="black"),
-            ),
-            text=["AI 推薦點"],
-            textposition="top center",
-            name="AI Recommendation",
-            hovertemplate="AI 推薦<br>Risk=%{x:.6g}<br>Return=%{y:.6g}<extra></extra>",
-        )
+    ax.scatter(
+        [float(f[0])],
+        [float(-f[1])],
+        s=420,
+        color="red",
+        marker="*",
+        edgecolors="black",
+        linewidths=1.8,
+        label="AI 推薦點",
+        zorder=5,
     )
 
-    fig.update_layout(
-        title="ECMADE-MOO 推薦點位置",
-        xaxis_title="Risk",
-        yaxis_title="Expected Return",
-        height=550,
+    ax.annotate(
+        "AI 推薦點",
+        xy=(float(f[0]), float(-f[1])),
+        xytext=(8, 8),
+        textcoords="offset points",
+        fontsize=11,
+        weight="bold",
+        color="red",
     )
 
-    st.plotly_chart(fig, width="stretch", key="step3_recommendation_pf")
-
-
-# ============================================================
-# UI
-# ============================================================
+    ax.set_title("ECMADE-MOO 推薦點位置")
+    ax.set_xlabel("Risk")
+    ax.set_ylabel("Expected Return")
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+    st.pyplot(fig, clear_figure=True)
 
 
 def render_log_field_explanation():
@@ -916,7 +890,7 @@ def run_app(results_dir):
 
     render_participant_input_top()
     st.divider()
-    render_progress()
+render_progress()
     st.divider()
 
     render_step1(records, metrics, rec["K"], heatmap_points, results_dir)
