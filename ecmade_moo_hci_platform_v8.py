@@ -266,9 +266,7 @@ def render_pf_overlay(records, K):
         height=550,
     )
 
-    st.markdown('<div class="sticky-chart">', unsafe_allow_html=True)
     st.plotly_chart(fig, width="stretch", key="step1_pf_overlay")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_heatmap_comparison(heatmap_points, K):
@@ -310,9 +308,7 @@ def render_heatmap_comparison(heatmap_points, K):
             )
 
             fig.update_layout(height=450)
-            st.markdown('<div class="sticky-chart">', unsafe_allow_html=True)
             st.plotly_chart(fig, width="stretch", key=f"step1_heatmap_{alg}_{K}")
-            st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_single_heatmap(heatmap_points, algorithm, K, key_suffix):
@@ -466,9 +462,7 @@ def render_recommendation_pf(PF_F, f):
         height=550,
     )
 
-    st.markdown('<div class="sticky-chart">', unsafe_allow_html=True)
     st.plotly_chart(fig, width="stretch", key="step3_recommendation_pf")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ============================================================
@@ -512,19 +506,18 @@ def render_log_field_explanation():
             """
         )
 
+
+
 def render_participant_input_top():
     st.markdown("## 受試者資料")
-
-    st.info(
-        "請先填寫受試者編號。送出任何答案前，系統會檢查是否已填寫。"
-    )
-
+    st.info("請先填寫受試者編號。送出任何答案前，系統會檢查是否已填寫。")
     st.session_state.participant_id = st.text_input(
         "受試者編號 Participant ID",
-        value=st.session_state.get("participant_id", ""),
+        value=st.session_state.participant_id,
         placeholder="例如：P001、S01、你的學號末三碼",
         key="participant_id_top",
     )
+
 
 def render_sidebar(rec, config, results_dir):
     st.sidebar.header("實驗資訊（僅供參考）")
@@ -619,7 +612,13 @@ def render_progress():
 
 def render_step1(records, metrics, K, heatmap_points, results_dir):
     st.header("Step 1｜ECMADE-MOO vs NSGA-II 穩定性比較")
-    st.info("請先查看上方「固定圖表區」的圖 1 與圖 2，再搭配下方指標表格判斷哪個演算法較穩定。")
+    st.info("請先查看下方圖表，再搭配指標表格判斷哪個演算法較穩定。")
+
+    render_pf_overlay(records, K)
+    st.divider()
+
+    render_heatmap_comparison(heatmap_points, K)
+    st.divider()
 
     render_metrics_table(metrics, K)
 
@@ -691,6 +690,15 @@ def render_step3(rec, PF_F, f, w, results_dir):
         可用來判斷推薦點是否位於可接受的風險—報酬區域。
         """
     )
+
+    st.markdown(
+        """
+        **圖說：**  
+        紅色星號為 AI 推薦點。使用者可以觀察推薦點是否位於可接受的風險—報酬區域。
+        """
+    )
+
+    render_recommendation_pf(PF_F, f)
 
     st.subheader("AI 推薦投資組合權重")
 
@@ -878,20 +886,6 @@ def run_app(results_dir):
         layout="wide",
     )
 
-    st.markdown("""
-    <style>
-    .sticky-chart {
-        position: sticky;
-        top: 0.5rem;
-        z-index: 999;
-        background-color: white;
-        padding-top: 0.25rem;
-        padding-bottom: 0.25rem;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-
     init_state()
 
     if not results_dir or not os.path.isdir(results_dir):
@@ -922,8 +916,7 @@ def run_app(results_dir):
 
     render_participant_input_top()
     st.divider()
-
-    render_progress()
+render_progress()
     st.divider()
 
     render_step1(records, metrics, rec["K"], heatmap_points, results_dir)
