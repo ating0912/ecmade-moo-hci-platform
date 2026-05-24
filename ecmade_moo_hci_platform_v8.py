@@ -125,6 +125,41 @@ def choose_ecmade_record(records):
     pool = ecmade if ecmade else records
     return sorted(pool, key=lambda r: (abs(r["K"] - 10), r["seed"]))[0]
 
+def append_google_sheet(path: Path, row: Dict) -> None:
+    """
+    寫入 Google Sheets
+    """
+
+    sheet = connect_gsheet()
+
+    path_text = str(path).lower()
+
+    if "behavior" in path_text:
+        worksheet = sheet.worksheet("behavior_log")
+
+    elif "questionnaire" in path_text:
+        worksheet = sheet.worksheet("questionnaire_log")
+
+    else:
+        return
+
+    existing = worksheet.get_all_values()
+
+    # 如果 sheet 是空的，先寫 header
+    if len(existing) == 0:
+        worksheet.append_row(list(row.keys()))
+
+    safe_values = []
+
+    for v in row.values():
+
+        if isinstance(v, (dict, list, tuple)):
+            safe_values.append(str(v))
+
+        else:
+            safe_values.append(v)
+
+    worksheet.append_row(safe_values)
 
 def append_csv(path: Path, row: Dict):
     """
