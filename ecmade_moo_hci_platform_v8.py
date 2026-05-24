@@ -1,5 +1,5 @@
 """
-ecmade_moo_hci_platform_public.py
+ecmade_moo_hci_platform_v6.py
 =============================
 
 修正版：
@@ -10,7 +10,7 @@ ecmade_moo_hci_platform_public.py
 5. 若使用者選「不確定」，要求說明原因。
 
 執行：
-streamlit run ecmade_moo_hci_platform_public.py -- --results your_results_folder
+streamlit run ecmade_moo_hci_platform_v6.py -- --results your_results_folder
 """
 
 from __future__ import annotations
@@ -153,9 +153,7 @@ def append_csv(path: Path, row: Dict):
         worksheet.append_row(list(row.values()))
 
     except Exception as e:
-        st.warning(f"Google Sheets 寫入失敗：{e}")
-        
-
+        st.warning(f"Google Sheets 寫入失敗：{type(e).__name__}: {e}")
 
 def connect_gsheet():
     scope = [
@@ -268,7 +266,9 @@ def render_pf_overlay(records, K):
         height=550,
     )
 
+    st.markdown('<div class="sticky-chart">', unsafe_allow_html=True)
     st.plotly_chart(fig, width="stretch", key="step1_pf_overlay")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_heatmap_comparison(heatmap_points, K):
@@ -310,7 +310,9 @@ def render_heatmap_comparison(heatmap_points, K):
             )
 
             fig.update_layout(height=450)
+            st.markdown('<div class="sticky-chart">', unsafe_allow_html=True)
             st.plotly_chart(fig, width="stretch", key=f"step1_heatmap_{alg}_{K}")
+            st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_single_heatmap(heatmap_points, algorithm, K, key_suffix):
@@ -464,7 +466,9 @@ def render_recommendation_pf(PF_F, f):
         height=550,
     )
 
+    st.markdown('<div class="sticky-chart">', unsafe_allow_html=True)
     st.plotly_chart(fig, width="stretch", key="step3_recommendation_pf")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ============================================================
@@ -508,37 +512,6 @@ def render_log_field_explanation():
             """
         )
 
-
-
-def render_participant_input_top():
-    st.markdown("## 受試者資料")
-    st.info("請先填寫受試者編號。送出任何答案前，系統會檢查是否已填寫。")
-    st.session_state.participant_id = st.text_input(
-        "受試者編號 Participant ID",
-        value=st.session_state.participant_id,
-        placeholder="例如：P001、S01、你的學號末三碼",
-        key="participant_id_top",
-    )
-
-
-def render_fixed_visual_area(records, heatmap_points, rec, PF_F, f):
-    st.markdown("## 固定圖表區")
-    st.caption("本區固定集中顯示所有主要圖表；下方 Step 只負責回答與判斷，避免圖表位置一直變動。")
-
-    tab1, tab2, tab3 = st.tabs([
-        "圖 1｜演算法 PF Overlay",
-        "圖 2｜PF Heatmap 比較",
-        "圖 3｜ECMADE-MOO 推薦點",
-    ])
-
-    with tab1:
-        render_pf_overlay(records, rec["K"])
-
-    with tab2:
-        render_heatmap_comparison(heatmap_points, rec["K"])
-
-    with tab3:
-        render_recommendation_pf(PF_F, f)
 
 
 def render_sidebar(rec, config, results_dir):
@@ -893,6 +866,20 @@ def run_app(results_dir):
         layout="wide",
     )
 
+    st.markdown("""
+    <style>
+    .sticky-chart {
+        position: sticky;
+        top: 0.5rem;
+        z-index: 999;
+        background-color: white;
+        padding-top: 0.25rem;
+        padding-bottom: 0.25rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
     init_state()
 
     if not results_dir or not os.path.isdir(results_dir):
@@ -924,9 +911,6 @@ def run_app(results_dir):
     render_participant_input_top()
     st.divider()
 
-    render_fixed_visual_area(records, heatmap_points, rec, PF_F, f)
-    st.divider()
-
     render_progress()
     st.divider()
 
@@ -956,7 +940,6 @@ def build_parser():
         default="results_ecmade_moo_hci",
     )
     return parser
-
 
 if __name__ == "__main__":
     args = build_parser().parse_args()
