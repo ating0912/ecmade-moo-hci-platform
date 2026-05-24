@@ -125,6 +125,25 @@ def choose_ecmade_record(records):
     pool = ecmade if ecmade else records
     return sorted(pool, key=lambda r: (abs(r["K"] - 10), r["seed"]))[0]
 
+def connect_gsheet():
+    """
+    連線 Google Sheets
+    """
+
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scope,
+    )
+
+    client = gspread.authorize(creds)
+
+    return client.open("HCI_Experiment")
+
 def append_google_sheet(path: Path, row: Dict) -> None:
     """
     寫入 Google Sheets
