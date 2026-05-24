@@ -1,5 +1,5 @@
 """
-ecmade_moo_hci_platform_v6.py
+ecmade_moo_hci_platform_public.py
 =============================
 
 修正版：
@@ -10,7 +10,7 @@ ecmade_moo_hci_platform_v6.py
 5. 若使用者選「不確定」，要求說明原因。
 
 執行：
-streamlit run ecmade_moo_hci_platform_v6.py -- --results your_results_folder
+streamlit run ecmade_moo_hci_platform_public.py -- --results your_results_folder
 """
 
 from __future__ import annotations
@@ -28,6 +28,9 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
+
+import gspread
+from google.oauth2.service_account import Credentials
 
 
 # ============================================================
@@ -123,6 +126,7 @@ def choose_ecmade_record(records):
 
 
 def append_csv(path: Path, row: Dict):
+    # 1. 本機仍然存一份 CSV，方便你本機測試
     df = pd.DataFrame([row])
 
     if path.exists():
@@ -130,6 +134,42 @@ def append_csv(path: Path, row: Dict):
     else:
         df.to_csv(path, index=False, encoding="utf-8-sig")
 
+    # 2. 線上部署時，同步寫入 Google Sheets
+    try:
+        sheet = connect_gsheet()
+
+        if "behavior" in str(path):
+            worksheet = sheet.worksheet("behavior_log")
+        elif "questionnaire" in str(path):
+            worksheet = sheet.worksheet("questionnaire_log")
+        else:
+            return
+
+        # 如果工作表是空的，先寫欄位名稱
+        existing = worksheet.get_all_values()
+        if len(existing) == 0:
+            worksheet.append_row(list(row.keys()))
+
+        worksheet.append_row(list(row.values()))
+
+    except Exception as e:
+        st.warning(f"Google Sheets 寫入失敗：{e}")
+        
+
+
+def connect_gsheet():
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scope,
+    )
+
+    client = gspread.authorize(creds)
+    return client.open("HCI_Experiment")
 
 def log_event(results_dir, event_type, extra=None):
     extra = extra or {}
@@ -856,7 +896,7 @@ def run_app(results_dir):
     init_state()
 
     if not results_dir or not os.path.isdir(results_dir):
-        st.error("請指定 results 資料夾")
+        st.error("找不到 results_ecmade_moo_hci 資料夾。請確認 GitHub repo 內有 results_ecmade_moo_hci/，且裡面包含 *_pf.npz、stability_summary_hv_igd.csv、pf_heatmap_points.csv。")
         st.stop()
 
     records, metrics, heatmap_points, config = load_results(results_dir)
@@ -910,7 +950,11 @@ def run_app(results_dir):
 
 def build_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--results", type=str, default="")
+    parser.add_argument(
+        "--results",
+        type=str,
+        default="results_ecmade_moo_hci",
+    )
     return parser
 
 
