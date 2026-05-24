@@ -890,7 +890,7 @@ def run_app(results_dir):
 
     render_participant_input_top()
     st.divider()
-render_progress()
+    render_progress()
     st.divider()
 
     render_step1(records, metrics, rec["K"], heatmap_points, results_dir)
