@@ -512,7 +512,19 @@ def render_log_field_explanation():
             """
         )
 
+def render_participant_input_top():
+    st.markdown("## 受試者資料")
 
+    st.info(
+        "請先填寫受試者編號。送出任何答案前，系統會檢查是否已填寫。"
+    )
+
+    st.session_state.participant_id = st.text_input(
+        "受試者編號 Participant ID",
+        value=st.session_state.get("participant_id", ""),
+        placeholder="例如：P001、S01、你的學號末三碼",
+        key="participant_id_top",
+    )
 
 def render_sidebar(rec, config, results_dir):
     st.sidebar.header("實驗資訊（僅供參考）")
