@@ -29,8 +29,7 @@ import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 
-import gspread
-from google.oauth2.service_account import Credentials
+
 # ============================================================
 # Utilities
 # ============================================================
@@ -124,7 +123,6 @@ def choose_ecmade_record(records):
 
 
 def append_csv(path: Path, row: Dict):
-    # 1. 本機仍然存一份 CSV，方便你本機測試
     df = pd.DataFrame([row])
 
     if path.exists():
@@ -132,40 +130,6 @@ def append_csv(path: Path, row: Dict):
     else:
         df.to_csv(path, index=False, encoding="utf-8-sig")
 
-    # 2. 線上部署時，同步寫入 Google Sheets
-    try:
-        sheet = connect_gsheet()
-
-        if "behavior" in str(path):
-            worksheet = sheet.worksheet("behavior_log")
-        elif "questionnaire" in str(path):
-            worksheet = sheet.worksheet("questionnaire_log")
-        else:
-            return
-
-        # 如果工作表是空的，先寫欄位名稱
-        existing = worksheet.get_all_values()
-        if len(existing) == 0:
-            worksheet.append_row(list(row.keys()))
-
-        worksheet.append_row(list(row.values()))
-
-    except Exception as e:
-        st.warning(f"Google Sheets 寫入失敗：{e}")
-        
-def connect_gsheet():
-    scope = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=scope,
-    )
-
-    client = gspread.authorize(creds)
-    return client.open("HCI_Experiment")
 
 def log_event(results_dir, event_type, extra=None):
     extra = extra or {}
@@ -191,7 +155,7 @@ def require_participant_id() -> bool:
     """Check participant id before submitting any answer."""
     pid = st.session_state.get("participant_id", "").strip()
     if not pid:
-        st.error("請先在左側欄填寫受試者編號，再提交答案。")
+        st.error("請先在測驗最上方填寫受試者編號，再提交答案。")
         return False
     return True
 
@@ -505,16 +469,46 @@ def render_log_field_explanation():
         )
 
 
-def render_sidebar(rec, config, results_dir):
-    st.sidebar.header("實驗資訊")
 
-    st.session_state.participant_id = st.sidebar.text_input(
-        "受試者編號",
+def render_participant_input_top():
+    st.markdown("## 受試者資料")
+    st.info("請先填寫受試者編號。送出任何答案前，系統會檢查是否已填寫。")
+    st.session_state.participant_id = st.text_input(
+        "受試者編號 Participant ID",
         value=st.session_state.participant_id,
+        placeholder="例如：P001、S01、你的學號末三碼",
+        key="participant_id_top",
     )
 
+
+def render_fixed_visual_area(records, heatmap_points, rec, PF_F, f):
+    st.markdown("## 固定圖表區")
+    st.caption("本區固定集中顯示所有主要圖表；下方 Step 只負責回答與判斷，避免圖表位置一直變動。")
+
+    tab1, tab2, tab3 = st.tabs([
+        "圖 1｜演算法 PF Overlay",
+        "圖 2｜PF Heatmap 比較",
+        "圖 3｜ECMADE-MOO 推薦點",
+    ])
+
+    with tab1:
+        render_pf_overlay(records, rec["K"])
+
+    with tab2:
+        render_heatmap_comparison(heatmap_points, rec["K"])
+
+    with tab3:
+        render_recommendation_pf(PF_F, f)
+
+
+def render_sidebar(rec, config, results_dir):
+    st.sidebar.header("實驗資訊（僅供參考）")
+
+    current_pid = st.session_state.get("participant_id", "").strip()
     st.sidebar.info(
         f"""
+        受試者編號：{current_pid if current_pid else "尚未填寫"}
+
         Algorithm：{rec["algorithm"]}
 
         K：{rec["K"]}
@@ -523,15 +517,18 @@ def render_sidebar(rec, config, results_dir):
         """
     )
 
-    with st.sidebar.expander("模型參數"):
+    with st.sidebar.expander("模型參數（僅供參考，不需更改）"):
         if config:
             for k, v in config.items():
                 st.write(f"{k}: {v}")
+        else:
+            st.write("未讀取到 experiment_config.json")
 
-    if st.sidebar.button("開始 / 重設"):
+    if st.sidebar.button("重新開始測驗"):
         st.session_state.current_step = 1
         st.session_state.task_start = time.time()
-        log_event(results_dir, "task_started")
+        if st.session_state.get("participant_id", "").strip():
+            log_event(results_dir, "task_started")
 
     render_log_field_explanation()
 
@@ -597,12 +594,7 @@ def render_progress():
 
 def render_step1(records, metrics, K, heatmap_points, results_dir):
     st.header("Step 1｜ECMADE-MOO vs NSGA-II 穩定性比較")
-
-    render_pf_overlay(records, K)
-    st.divider()
-
-    render_heatmap_comparison(heatmap_points, K)
-    st.divider()
+    st.info("請先查看上方「固定圖表區」的圖 1 與圖 2，再搭配下方指標表格判斷哪個演算法較穩定。")
 
     render_metrics_table(metrics, K)
 
@@ -670,11 +662,10 @@ def render_step3(rec, PF_F, f, w, results_dir):
     st.markdown(
         """
         **圖說：**  
-        紅色星號為 AI 推薦點。使用者可以觀察推薦點是否位於可接受的風險—報酬區域。
+        請查看上方固定圖表區的「圖 3｜ECMADE-MOO 推薦點」。紅色星號為 AI 推薦點，
+        可用來判斷推薦點是否位於可接受的風險—報酬區域。
         """
     )
-
-    render_recommendation_pf(PF_F, f)
 
     st.subheader("AI 推薦投資組合權重")
 
@@ -890,6 +881,12 @@ def run_app(results_dir):
     render_intro()
     st.divider()
 
+    render_participant_input_top()
+    st.divider()
+
+    render_fixed_visual_area(records, heatmap_points, rec, PF_F, f)
+    st.divider()
+
     render_progress()
     st.divider()
 
@@ -913,11 +910,7 @@ def run_app(results_dir):
 
 def build_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--results",
-        type=str,
-        default="results_ecmade_moo_hci",
-    )
+    parser.add_argument("--results", type=str, default="")
     return parser
 
 
