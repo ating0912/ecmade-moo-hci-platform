@@ -916,7 +916,7 @@ def run_app(results_dir):
 
     render_participant_input_top()
     st.divider()
-render_progress()
+    render_progress()
     st.divider()
 
     render_step1(records, metrics, rec["K"], heatmap_points, results_dir)
@@ -949,4 +949,3 @@ def build_parser():
 if __name__ == "__main__":
     args = build_parser().parse_args()
     run_app(args.results)
-
