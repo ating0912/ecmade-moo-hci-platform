@@ -127,7 +127,10 @@ def choose_ecmade_record(records):
 
 
 def append_csv(path: Path, row: Dict):
-    # 1. 本機仍然存一份 CSV，方便你本機測試
+    """
+    本機測試時寫入 CSV；公開平台則同步寫入 Google Sheets。
+    若 Google Sheets 寫入失敗，畫面會顯示錯誤原因。
+    """
     df = pd.DataFrame([row])
 
     if path.exists():
@@ -135,40 +138,11 @@ def append_csv(path: Path, row: Dict):
     else:
         df.to_csv(path, index=False, encoding="utf-8-sig")
 
-    # 2. 線上部署時，同步寫入 Google Sheets
     try:
-        sheet = connect_gsheet()
-
-        if "behavior" in str(path):
-            worksheet = sheet.worksheet("behavior_log")
-        elif "questionnaire" in str(path):
-            worksheet = sheet.worksheet("questionnaire_log")
-        else:
-            return
-
-        # 如果工作表是空的，先寫欄位名稱
-        existing = worksheet.get_all_values()
-        if len(existing) == 0:
-            worksheet.append_row(list(row.keys()))
-
-        worksheet.append_row(list(row.values()))
-
+        append_google_sheet(path, row)
     except Exception as e:
         st.warning(f"Google Sheets 寫入失敗：{type(e).__name__}: {e}")
 
-def connect_gsheet():
-    scope = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=scope,
-    )
-
-    client = gspread.authorize(creds)
-    return client.open("HCI_Experiment")
 
 def log_event(results_dir, event_type, extra=None):
     extra = extra or {}
@@ -330,6 +304,119 @@ def render_single_heatmap(heatmap_points, algorithm, K, key_suffix=""):
     ax.set_xlabel("Risk")
     ax.set_ylabel("Expected Return")
     st.pyplot(fig, clear_figure=True)
+
+
+
+def build_step1_conclusion(metrics, K) -> str:
+    """
+    根據 ECMADE-MOO 與 NSGA-II 的指標比較，產生給使用者看的穩定性結論。
+    """
+    if metrics.empty:
+        return "目前沒有穩定性指標資料，因此無法形成演算法穩定性結論。"
+
+    df = metrics[metrics["K"] == K].copy()
+    if df.empty:
+        return f"目前沒有 K={K} 的穩定性資料，因此無法形成演算法穩定性結論。"
+
+    e_df = df[df["algorithm"] == "ECMADE-MOO"]
+    n_df = df[df["algorithm"] == "NSGA-II"]
+
+    if e_df.empty or n_df.empty:
+        return "目前缺少 ECMADE-MOO 或 NSGA-II 其中一方的資料，因此只能參考單一演算法結果。"
+
+    e = e_df.iloc[0]
+    n = n_df.iloc[0]
+
+    evidence = []
+    score = 0
+    total = 0
+
+    def high_better(col, label):
+        nonlocal score, total
+        if col in df.columns and not pd.isna(e.get(col, np.nan)) and not pd.isna(n.get(col, np.nan)):
+            total += 1
+            if e[col] >= n[col]:
+                score += 1
+                evidence.append(f"{label} 較佳")
+            else:
+                evidence.append(f"{label} 較弱")
+
+    def low_better(col, label):
+        nonlocal score, total
+        if col in df.columns and not pd.isna(e.get(col, np.nan)) and not pd.isna(n.get(col, np.nan)):
+            total += 1
+            if e[col] <= n[col]:
+                score += 1
+                evidence.append(f"{label} 較佳")
+            else:
+                evidence.append(f"{label} 較弱")
+
+    high_better("recommendation_consistency", "推薦一致性")
+    high_better("mean_pairwise_PF_overlap", "PF 重疊度")
+    high_better("HV_mean", "HV")
+    low_better("IGD_mean", "IGD")
+
+    if total == 0:
+        return "目前指標欄位不足，無法形成明確比較結論。"
+
+    if score >= total * 0.75:
+        main = "結論：這組結果整體支持 ECMADE-MOO 比 NSGA-II 更穩定。"
+    elif score >= total * 0.5:
+        main = "結論：ECMADE-MOO 在部分穩定性指標上較佳，但仍建議搭配 PF 圖與 Heatmap 一起判斷。"
+    else:
+        main = "結論：這組結果未明顯支持 ECMADE-MOO 比 NSGA-II 更穩定，使用者應保留懷疑並進一步覆核。"
+
+    return main + " 主要依據：" + "、".join(evidence) + "。"
+
+
+def build_step3_conclusion(PF_F, f, w, metric_row) -> str:
+    """
+    根據推薦點在 PF 中的位置與穩定性指標，產生推薦結論。
+    """
+    risk = float(f[0])
+    ret = float(-f[1])
+    pf_risk, pf_ret = pf_to_risk_return(PF_F)
+
+    risk_pos = (risk - pf_risk.min()) / (pf_risk.max() - pf_risk.min() + 1e-12)
+    ret_pos = (ret - pf_ret.min()) / (pf_ret.max() - pf_ret.min() + 1e-12)
+
+    if risk_pos <= 0.33:
+        risk_desc = "風險相對偏低"
+    elif risk_pos <= 0.66:
+        risk_desc = "風險位於中間區間"
+    else:
+        risk_desc = "風險相對偏高"
+
+    if ret_pos >= 0.66:
+        ret_desc = "報酬相對偏高"
+    elif ret_pos >= 0.33:
+        ret_desc = "報酬位於中間區間"
+    else:
+        ret_desc = "報酬相對偏低"
+
+    consistency = np.nan
+    overlap = np.nan
+    if metric_row is not None:
+        consistency = metric_row.get("recommendation_consistency", np.nan)
+        overlap = metric_row.get("mean_pairwise_PF_overlap", np.nan)
+
+    if not pd.isna(consistency) and not pd.isna(overlap):
+        if consistency >= 0.7 and overlap >= 0.7:
+            stability_desc = "推薦一致性與 PF overlap 皆偏高，因此此推薦具備較高穩定性參考價值。"
+        elif consistency >= 0.4 or overlap >= 0.4:
+            stability_desc = "穩定性屬於中等，建議搭配 Heatmap 與自身風險偏好再判斷。"
+        else:
+            stability_desc = "穩定性指標偏低，建議不要只依賴單次推薦結果。"
+    else:
+        stability_desc = "目前缺少完整穩定性指標，建議保守解讀此推薦。"
+
+    selected_assets = int(np.sum(w > 1e-8))
+
+    return (
+        f"結論：此 ECMADE-MOO 推薦包含 {selected_assets} 個資產，"
+        f"在目前 Pareto Front 中屬於「{risk_desc}、{ret_desc}」的方案。"
+        f"{stability_desc}"
+    )
 
 
 def render_metrics_table(metrics, K):
@@ -596,6 +683,8 @@ def render_step1(records, metrics, K, heatmap_points, results_dir):
 
     render_metrics_table(metrics, K)
 
+    st.success(build_step1_conclusion(metrics, K))
+
     if st.button("我已看完穩定性比較，前往 Step 2"):
         if not require_participant_id():
             st.stop()
@@ -642,7 +731,7 @@ def render_step2(results_dir):
         st.rerun()
 
 
-def render_step3(rec, PF_F, f, w, results_dir):
+def render_step3(rec, PF_F, f, w, metric_row, results_dir):
     if st.session_state.current_step < 3:
         return
 
@@ -673,6 +762,8 @@ def render_step3(rec, PF_F, f, w, results_dir):
     )
 
     render_recommendation_pf(PF_F, f)
+
+    st.success(build_step3_conclusion(PF_F, f, w, metric_row))
 
     st.subheader("AI 推薦投資組合權重")
 
@@ -899,7 +990,7 @@ def run_app(results_dir):
     render_step2(results_dir)
     st.divider()
 
-    render_step3(rec, PF_F, f, w, results_dir)
+    render_step3(rec, PF_F, f, w, metric_row, results_dir)
     st.divider()
 
     render_step4(metric_row, heatmap_points, rec, results_dir)
