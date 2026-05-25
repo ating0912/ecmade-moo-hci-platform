@@ -34,8 +34,22 @@ from google.oauth2.service_account import Credentials
 
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 
-matplotlib.rcParams["font.family"] = "Noto Sans CJK TC"
+font_candidates = [
+    "Noto Sans CJK TC",
+    "Noto Sans CJK JP",
+    "Noto Sans CJK SC",
+    "Noto Serif CJK TC",
+]
+
+available_fonts = {f.name for f in font_manager.fontManager.ttflist}
+
+for font in font_candidates:
+    if font in available_fonts:
+        matplotlib.rcParams["font.family"] = font
+        break
+
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 # ============================================================
