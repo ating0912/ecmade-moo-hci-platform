@@ -634,8 +634,22 @@ def choose_record_by_k(records: List[Dict], K: int) -> Dict:
 
 
 
-def render_sidebar(rec, config, results_dir):
-    st.sidebar.header("實驗資訊（僅供參考）")
+def get_k_options(metrics: pd.DataFrame, records: List[Dict], default_k: int) -> List[int]:
+    k_from_metrics = []
+    if metrics is not None and not metrics.empty and "K" in metrics.columns:
+        k_from_metrics = sorted([int(k) for k in metrics["K"].dropna().unique().tolist()])
+
+    k_from_records = sorted([int(r["K"]) for r in records]) if records else []
+    k_options = sorted(set(k_from_metrics + k_from_records))
+
+    if not k_options:
+        return [int(default_k)]
+
+    return k_options
+
+
+def render_sidebar(rec, config, results_dir, metrics=None, records=None):
+    st.sidebar.header("實驗資訊")
 
     current_pid = st.session_state.get("participant_id", "").strip()
     st.sidebar.info(
@@ -649,7 +663,30 @@ def render_sidebar(rec, config, results_dir):
         代表 Seed：{rec["seed"]}
         """
     )
-    selected_k = render_k_selector(metrics, records, rec["K"])
+
+    st.sidebar.markdown("### K 值切換")
+    k_options = get_k_options(metrics, records, rec["K"])
+
+    if "selected_k" not in st.session_state:
+        st.session_state.selected_k = int(rec["K"]) if int(rec["K"]) in k_options else int(k_options[0])
+
+    if st.session_state.selected_k not in k_options:
+        st.session_state.selected_k = int(k_options[0])
+
+    selected_k = st.sidebar.selectbox(
+        "選擇要查看的 K 值",
+        options=k_options,
+        index=k_options.index(st.session_state.selected_k),
+        key="selected_k_selectbox_sidebar",
+        help="K 代表投資組合中最多選擇的資產數。這裡只是切換已完成實驗的結果，不會重新訓練模型。",
+    )
+
+    st.session_state.selected_k = int(selected_k)
+
+    st.sidebar.caption(
+        "K 值切換只用來查看不同 K 下的 PF overlap、PF heatmap、HV、IGD 與推薦結果。"
+    )
+
     with st.sidebar.expander("模型參數（僅供參考，不需更改）"):
         if config:
             for k, v in config.items():
@@ -663,7 +700,8 @@ def render_sidebar(rec, config, results_dir):
         if st.session_state.get("participant_id", "").strip():
             log_event(results_dir, "task_started")
 
-    render_log_field_explanation()
+    if "render_log_field_explanation" in globals():
+        render_log_field_explanation()
 
     behavior = Path(results_dir) / "hci_behavior_log.csv"
     questionnaire = Path(results_dir) / "hci_questionnaire_log.csv"
@@ -681,6 +719,8 @@ def render_sidebar(rec, config, results_dir):
             data=questionnaire.read_bytes(),
             file_name="hci_questionnaire_log.csv",
         )
+
+    return int(selected_k)
 
 
 def render_intro():
@@ -727,7 +767,7 @@ def render_progress():
 
 def render_step1(records, metrics, K, heatmap_points, results_dir):
     st.header("Step 1｜ECMADE-MOO vs NSGA-II 穩定性比較")
-    st.caption(f"目前顯示 K = {K} 的 PF Overlap、PF Heatmap 與穩定性指標。")
+    st.caption(f"目前顯示 K = {K} 的 PF Overlap、PF Heatmap 與穩定性指標。若要切換 K 值，請使用左側欄的 K 值切換。")
     st.info("請先查看下方圖表，再搭配指標表格判斷哪個演算法較穩定。")
 
     render_pf_overlay(records, K)
@@ -1021,7 +1061,7 @@ def run_app(results_dir):
 
     # 初始代表資料，主要用於側欄顯示
     rec = choose_ecmade_record(records)
-    render_sidebar(rec, config, results_dir)
+    selected_k = render_sidebar(rec, config, results_dir, metrics=metrics, records=records)
 
     render_intro()
     st.divider()
@@ -1029,8 +1069,7 @@ def run_app(results_dir):
     render_participant_input_top()
     st.divider()
 
-    # 讓使用者切換已完成實驗的 K 結果
-    
+    # 使用側邊欄選擇的 K 值切換已完成實驗結果
     rec = choose_record_by_k(records, selected_k)
 
     PF_X = rec["PF_X"]
