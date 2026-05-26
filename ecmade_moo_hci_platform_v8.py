@@ -644,12 +644,12 @@ def render_sidebar(rec, config, results_dir):
 
         Algorithm：{rec["algorithm"]}
 
-        K：可於主畫面切換查看
+        K：可於下方切換查看
 
         代表 Seed：{rec["seed"]}
         """
     )
-
+    selected_k = render_k_selector(metrics, records, rec["K"])
     with st.sidebar.expander("模型參數（僅供參考，不需更改）"):
         if config:
             for k, v in config.items():
@@ -1030,7 +1030,7 @@ def run_app(results_dir):
     st.divider()
 
     # 讓使用者切換已完成實驗的 K 結果
-    selected_k = render_k_selector(metrics, records, rec["K"])
+    
     rec = choose_record_by_k(records, selected_k)
 
     PF_X = rec["PF_X"]
