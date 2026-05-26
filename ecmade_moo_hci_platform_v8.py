@@ -1079,7 +1079,7 @@ def build_parser():
     parser.add_argument(
         "--results",
         type=str,
-        default="results_ecmade_moo_hci",
+        default="results_ecmade_moo_hci_v2",
     )
     return parser
 
