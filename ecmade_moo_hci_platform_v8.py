@@ -25,6 +25,7 @@ from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
@@ -32,25 +33,6 @@ import plotly.express as px
 import gspread
 from google.oauth2.service_account import Credentials
 
-import matplotlib
-import matplotlib.pyplot as plt
-from matplotlib import font_manager
-
-font_candidates = [
-    "Noto Sans CJK TC",
-    "Noto Sans CJK JP",
-    "Noto Sans CJK SC",
-    "Noto Serif CJK TC",
-]
-
-available_fonts = {f.name for f in font_manager.fontManager.ttflist}
-
-for font in font_candidates:
-    if font in available_fonts:
-        matplotlib.rcParams["font.family"] = font
-        break
-
-matplotlib.rcParams["axes.unicode_minus"] = False
 
 # ============================================================
 # Utilities
@@ -141,62 +123,8 @@ def get_metric_row(metrics, algorithm, K):
 def choose_ecmade_record(records):
     ecmade = [r for r in records if r["algorithm"] == "ECMADE-MOO"]
     pool = ecmade if ecmade else records
-    return sorted(pool, key=lambda r: (abs(r["K"] - 20), r["seed"]))[0]
+    return sorted(pool, key=lambda r: (abs(r["K"] - 10), r["seed"]))[0]
 
-def connect_gsheet():
-    """
-    連線 Google Sheets
-    """
-
-    scope = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=scope,
-    )
-
-    client = gspread.authorize(creds)
-
-    return client.open("HCI_Experiment")
-
-def append_google_sheet(path: Path, row: Dict) -> None:
-    """
-    寫入 Google Sheets
-    """
-
-    sheet = connect_gsheet()
-
-    path_text = str(path).lower()
-
-    if "behavior" in path_text:
-        worksheet = sheet.worksheet("behavior_log")
-
-    elif "questionnaire" in path_text:
-        worksheet = sheet.worksheet("questionnaire_log")
-
-    else:
-        return
-
-    existing = worksheet.get_all_values()
-
-    # 如果 sheet 是空的，先寫 header
-    if len(existing) == 0:
-        worksheet.append_row(list(row.keys()))
-
-    safe_values = []
-
-    for v in row.values():
-
-        if isinstance(v, (dict, list, tuple)):
-            safe_values.append(str(v))
-
-        else:
-            safe_values.append(v)
-
-    worksheet.append_row(safe_values)
 
 def append_csv(path: Path, row: Dict):
     """
@@ -652,6 +580,60 @@ def render_participant_input_top():
     )
 
 
+
+def render_k_selector(metrics: pd.DataFrame, records: List[Dict], default_k: int) -> int:
+    """
+    切換已完成實驗的 K 值結果。
+    這不是讓使用者重新訓練模型，而是切換顯示不同 K 的 PF overlap、Heatmap 與穩定性指標。
+    """
+    k_from_metrics = []
+    if metrics is not None and not metrics.empty and "K" in metrics.columns:
+        k_from_metrics = sorted([int(k) for k in metrics["K"].dropna().unique().tolist()])
+
+    k_from_records = sorted([int(r["K"]) for r in records]) if records else []
+    k_options = sorted(set(k_from_metrics + k_from_records))
+
+    if not k_options:
+        return int(default_k)
+
+    if "selected_k" not in st.session_state:
+        st.session_state.selected_k = int(default_k) if int(default_k) in k_options else int(k_options[0])
+
+    if st.session_state.selected_k not in k_options:
+        st.session_state.selected_k = int(k_options[0])
+
+    st.markdown("### K 值切換")
+    st.caption(
+        "K 代表投資組合中最多選擇的資產數。這裡只是切換已完成實驗的結果，"
+        "用來觀察不同 K 值下 PF Overlap、PF Heatmap 與穩定性指標是否一致。"
+    )
+
+    selected_k = st.selectbox(
+        "選擇要查看的 K 值",
+        options=k_options,
+        index=k_options.index(st.session_state.selected_k),
+        key="selected_k_selectbox",
+    )
+
+    st.session_state.selected_k = int(selected_k)
+    return int(selected_k)
+
+
+def choose_record_by_k(records: List[Dict], K: int) -> Dict:
+    """
+    依照選定 K 值取得 ECMADE-MOO 的代表 run。
+    若沒有 ECMADE-MOO，則退回該 K 的第一筆資料。
+    """
+    same_k = [r for r in records if int(r["K"]) == int(K)]
+    if not same_k:
+        return choose_ecmade_record(records)
+
+    ecmade = [r for r in same_k if r["algorithm"] == "ECMADE-MOO"]
+    pool = ecmade if ecmade else same_k
+    return sorted(pool, key=lambda r: int(r["seed"]))[0]
+
+
+
 def render_sidebar(rec, config, results_dir):
     st.sidebar.header("實驗資訊（僅供參考）")
 
@@ -662,9 +644,9 @@ def render_sidebar(rec, config, results_dir):
 
         Algorithm：{rec["algorithm"]}
 
-        K：{rec["K"]}
+        K：可於主畫面切換查看
 
-        Seed：{rec["seed"]}
+        代表 Seed：{rec["seed"]}
         """
     )
 
@@ -745,6 +727,7 @@ def render_progress():
 
 def render_step1(records, metrics, K, heatmap_points, results_dir):
     st.header("Step 1｜ECMADE-MOO vs NSGA-II 穩定性比較")
+    st.caption(f"目前顯示 K = {K} 的 PF Overlap、PF Heatmap 與穩定性指標。")
     st.info("請先查看下方圖表，再搭配指標表格判斷哪個演算法較穩定。")
 
     render_pf_overlay(records, K)
@@ -883,6 +866,7 @@ def render_step4(metric_row, heatmap_points, rec, results_dir):
         return
 
     st.header("Step 4｜推薦穩定性判斷")
+    st.caption(f"目前檢查的是 K = {rec['K']} 的 ECMADE-MOO 推薦穩定性。")
     st.caption("Step 1 已經看過 PF overlay 與 heatmap；這一步不重複顯示熱力圖，而是要求使用者根據前面看到的圖與下方指標摘要做判斷。")
 
     if metric_row is None:
@@ -1035,7 +1019,19 @@ def run_app(results_dir):
         st.error("找不到 *_pf.npz")
         st.stop()
 
+    # 初始代表資料，主要用於側欄顯示
     rec = choose_ecmade_record(records)
+    render_sidebar(rec, config, results_dir)
+
+    render_intro()
+    st.divider()
+
+    render_participant_input_top()
+    st.divider()
+
+    # 讓使用者切換已完成實驗的 K 結果
+    selected_k = render_k_selector(metrics, records, rec["K"])
+    rec = choose_record_by_k(records, selected_k)
 
     PF_X = rec["PF_X"]
     PF_F = rec["PF_F"]
@@ -1046,13 +1042,8 @@ def run_app(results_dir):
 
     metric_row = get_metric_row(metrics, rec["algorithm"], rec["K"])
 
-    render_sidebar(rec, config, results_dir)
-
-    render_intro()
     st.divider()
 
-    render_participant_input_top()
-    st.divider()
     render_progress()
     st.divider()
 
@@ -1079,7 +1070,7 @@ def build_parser():
     parser.add_argument(
         "--results",
         type=str,
-        default="results_ecmade_moo_hci_v2",
+        default="results_ecmade_moo_hci",
     )
     return parser
 
