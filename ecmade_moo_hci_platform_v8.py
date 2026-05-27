@@ -1149,46 +1149,105 @@ def render_step5(results_dir):
 
 
 def render_step6(results_dir):
+
     if st.session_state.current_step < 6:
         return
 
     st.header("Step 6｜量表評定")
 
-    q1 = st.slider("穩定性視覺化有幫助我理解演算法差異", 1, 5, 3)
-    q2 = st.slider("PF Heatmap 有幫助我判斷穩定性", 1, 5, 3)
-    q3 = st.slider("HV / IGD 說明有幫助我理解模型表現", 1, 5, 3)
-    q4 = st.slider("我相信 ECMADE-MOO 比 NSGA-II 更穩定", 1, 5, 3)
-    q5 = st.slider("我相信 ECMADE-MOO 的 recommendation", 1, 5, 3)
-    q6 = st.slider("這個平台有幫助我覆核 AI recommendation", 1, 5, 3)
-    q7 = st.slider("整體平台容易理解", 1, 5, 3)
+    # ======================
+    # Likert量表
+    # ======================
 
-    
-feedback = st.text_area("開放式回饋")
+    q1 = st.slider(
+        "穩定性視覺化有幫助我理解演算法差異",
+        1,5,3
+    )
 
-st.subheader("Post-task Interview")
+    q2 = st.slider(
+        "PF Heatmap 有幫助我判斷穩定性",
+        1,5,3
+    )
 
-q_open1=st.text_area(
-"哪個資訊最影響你的決策？"
-)
+    q3 = st.slider(
+        "HV / IGD 說明有幫助我理解模型表現",
+        1,5,3
+    )
 
-q_open2=st.text_area(
-"哪個 explanation 最有幫助？"
-)
+    q4 = st.slider(
+        "我相信 ECMADE-MOO 比 NSGA-II 更穩定",
+        1,5,3
+    )
 
-q_open3=st.text_area(
-"哪裡讓你感到困惑？"
-)
+    q5 = st.slider(
+        "我相信 ECMADE-MOO 的 recommendation",
+        1,5,3
+    )
+
+    q6 = st.slider(
+        "這個平台有幫助我覆核 AI recommendation",
+        1,5,3
+    )
+
+    q7 = st.slider(
+        "整體平台容易理解",
+        1,5,3
+    )
 
 
+    # ======================
+    # 開放回饋
+    # ======================
 
-    if st.button("提交量表，完成任務"):
+    st.subheader("開放式回饋")
+
+    feedback = st.text_area(
+        "其他想法或建議"
+    )
+
+
+    # ======================
+    # Post-task Interview
+    # ======================
+
+    st.subheader("Post-task Interview")
+
+    q_open1 = st.text_area(
+        "哪個資訊最影響你的決策？"
+    )
+
+    q_open2 = st.text_area(
+        "哪個 explanation 最有幫助？"
+    )
+
+    q_open3 = st.text_area(
+        "哪裡讓你感到困惑？"
+    )
+
+
+    # ======================
+    # Submit
+    # ======================
+
+    if st.button(
+        "提交量表，完成任務"
+    ):
+
         if not require_participant_id():
             st.stop()
+
         append_csv(
             Path(results_dir) / "hci_questionnaire_log.csv",
             {
-                "timestamp": datetime.now().isoformat(timespec="seconds"),
-                "participant_id": st.session_state.participant_id,
+
+                "timestamp":
+                datetime.now().isoformat(
+                    timespec="seconds"
+                ),
+
+                "participant_id":
+                st.session_state.participant_id,
+
                 "stability_visualization_understanding": q1,
                 "heatmap_helpfulness": q2,
                 "hv_igd_understanding": q3,
@@ -1196,15 +1255,26 @@ q_open3=st.text_area(
                 "recommendation_trust": q5,
                 "verification_support": q6,
                 "platform_usability": q7,
-                 "feedback": feedback,
-                "decision_factor":q_open1,
-                "helpful_explanation":q_open2,
-                "confusion_point":q_open3,
-            },
+
+                "feedback": feedback,
+
+                "decision_factor": q_open1,
+
+                "helpful_explanation": q_open2,
+
+                "confusion_point": q_open3,
+
+            }
         )
 
-        log_event(results_dir, "questionnaire_submitted")
-        st.success("任務完成")
+        log_event(
+            results_dir,
+            "questionnaire_submitted"
+        )
+
+        st.success(
+            "任務完成"
+        )
 
 
 def run_app(results_dir):
