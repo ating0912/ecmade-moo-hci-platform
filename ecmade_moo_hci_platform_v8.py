@@ -395,6 +395,9 @@ def require_participant_id() -> bool:
 
 
 def init_state():
+    if "response_buffer" not in st.session_state:
+        st.session_state.response_buffer = {}
+    
     defaults = {
         "participant_id": "",
         "current_step": 1,
@@ -1009,8 +1012,7 @@ def render_progress():
 
 def render_step1(records, metrics, K, heatmap_points, results_dir):
     st.header("Step 1｜ECMADE-MOO vs NSGA-II 穩定性比較")
-    st.caption(f"目前顯示 K = {K} 的 PF Overlap、PF Heatmap 與穩定性指標。若要切換 K 值，請使用左側欄的 K 值切換。")
-    st.info("請先查看下方圖表，再搭配指標表格判斷哪個演算法較穩定。")
+    st.caption(f"目前顯示 K = {K} 的 PF Overlap、PF Heatmap 與穩定性指標。")
 
     render_pf_overlay(records, K)
     st.divider()
@@ -1025,7 +1027,13 @@ def render_step1(records, metrics, K, heatmap_points, results_dir):
     if st.button("我已看完穩定性比較，前往 Step 2"):
         if not require_participant_id():
             st.stop()
-        log_event(results_dir, "stability_comparison_viewed")
+
+        st.session_state.response_buffer.update({
+            "step1_viewed": True,
+            "step1_time": datetime.now().isoformat(timespec="seconds"),
+            "selected_k": K,
+        })
+
         st.session_state.current_step = 2
         st.rerun()
 
@@ -1036,16 +1044,10 @@ def render_step2(results_dir):
 
     st.header("Step 2｜你是否相信 ECMADE-MOO 較穩定？")
 
-    confidence=st.slider("你對目前決策的信心程度",1,7,4)
-
     answer = st.radio(
         "根據剛剛的穩定性視覺化與指標表格，你是否相信 ECMADE-MOO 比 NSGA-II 更穩定？",
-        [
-            "相信",
-            "部分相信",
-            "不相信",
-            "不確定",
-        ],
+        ["相信", "部分相信", "不相信", "不確定"],
+        key="algorithm_trust_radio",
     )
 
     reason = ""
@@ -1053,22 +1055,19 @@ def render_step2(results_dir):
         reason = st.text_area(
             "請說明不確定的原因",
             placeholder="例如：圖太複雜、Heatmap 看不懂、指標不明顯等。",
+            key="algorithm_trust_reason_text",
         )
 
     if st.button("提交穩定性信任判斷，前往 Step 3"):
         if not require_participant_id():
             st.stop()
-        log_event(
-            results_dir,
-            "algorithm_trust_submitted",
-            {
-                "algorithm_trust": answer,
-                "algorithm_trust_reason": reason,
 
-                # 新增
-                "algorithm_trust_confidence":confidence
-            },
-        )
+        st.session_state.response_buffer.update({
+            "step2_time": datetime.now().isoformat(timespec="seconds"),
+            "algorithm_trust": answer,
+            "algorithm_trust_reason": reason,
+        })
+
         st.session_state.current_step = 3
         st.rerun()
 
@@ -1078,15 +1077,15 @@ def render_step3(rec, PF_F, f, w, metric_row, results_dir):
         return
 
     st.header("Step 3｜ECMADE-MOO 投資推薦")
-    st.caption("這一步顯示 AI 推薦的投資組合、PF 位置，以及每檔股票 / 資產的配置權重。")
 
     risk = float(f[0])
     ret = float(-f[1])
+    selected_assets = int(np.sum(w > 1e-8))
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Expected Return", f"{ret:.6g}")
     c2.metric("Risk", f"{risk:.6g}")
-    c3.metric("Selected Assets", int(np.sum(w > 1e-8)))
+    c3.metric("Selected Assets", selected_assets)
 
     st.markdown(
         """
@@ -1096,18 +1095,8 @@ def render_step3(rec, PF_F, f, w, metric_row, results_dir):
     )
 
     render_recommendation_pf(PF_F, f)
+
     st.success(build_step3_conclusion(PF_F, f, w, metric_row))
-
-    with st.expander("查看推薦依據（Evidence Panel）", expanded=False):
-        st.write("Sharpe Ratio ↑")
-        st.write("Downside Risk ↓")
-        st.write("30 次 run 中穩定出現")
-        st.write("Recommendation consistency 較高")
-
-        if st.button("我查看了推薦依據", key="evidence_clicked_btn"):
-            if require_participant_id():
-                log_event(results_dir, "evidence_clicked", {"evidence_clicked": 1})
-                st.success("已記錄查看推薦依據")
 
     st.subheader("AI 推薦投資組合權重")
 
@@ -1116,7 +1105,13 @@ def render_step3(rec, PF_F, f, w, metric_row, results_dir):
         "原始索引": list(range(len(w))),
         "權重": w,
     })
-    weights_df = weights_df[weights_df["權重"] > 1e-8].sort_values("權重", ascending=False).reset_index(drop=True)
+
+    weights_df = (
+        weights_df[weights_df["權重"] > 1e-8]
+        .sort_values("權重", ascending=False)
+        .reset_index(drop=True)
+    )
+
     weights_df["權重百分比"] = weights_df["權重"].map(lambda x: f"{x * 100:.2f}%")
     weights_df["權重"] = weights_df["權重"].map(lambda x: f"{x:.6f}")
 
@@ -1131,78 +1126,23 @@ def render_step3(rec, PF_F, f, w, metric_row, results_dir):
         "該資產配置約 20 萬。這裡的 Asset 編號對應 OR-Library 資料中的資產順序。"
     )
 
-    # ==========================
-    # Warning / Conflict Cue
-    # ==========================
-    st.subheader("Warning / Conflict Cue")
-
-    risk_values, _ = pf_to_risk_return(PF_F)
-    warning_messages = []
-
-    if risk > float(np.mean(risk_values)):
-        warning_messages.append("高報酬可能伴隨較高風險，建議進一步查看推薦依據。")
-
-    if metric_row is not None:
-        consistency = metric_row.get("recommendation_consistency", np.nan)
-        if not pd.isna(consistency) and float(consistency) < 0.5:
-            warning_messages.append("Recommendation consistency 偏低，不同 run 可能產生不同推薦結果。")
-
-    if warning_messages:
-        for msg in warning_messages:
-            st.warning("⚠ " + msg)
-    else:
-        st.success("目前沒有明顯風險衝突提示，但仍建議使用者自行覆核。")
-
-    if st.button("查看 Warning 詳細資訊", key="warning_button_step3"):
-        if require_participant_id():
-            log_event(results_dir, "warning_clicked", {"warning_clicked": 1})
-            st.success("已記錄 Warning 查看行為")
-
-    # ==========================
-    # Compare Alternatives
-    # ==========================
-    # st.subheader("Compare Alternatives")
-
-    # compare_df = pd.DataFrame({
-    #     "Portfolio": ["A", "B", "C"],
-    #     "Return": [ret * 0.9, ret, ret * 1.1],
-    #     "Risk": [risk * 0.8, risk, risk * 1.2],
-    #     "Stability": [90, 87, 75],
-    # })
-
-    # st.dataframe(compare_df, hide_index=True)
-
-    # selected_compare = st.multiselect(
-    #     "加入比較",
-    #     ["A", "B", "C"],
-    #     key="compare_selection_step3",
-    # )
-
-    # if selected_compare:
-    #     log_event(
-    #         results_dir,
-    #         "compare_used",
-    #         {
-    #             "selected_compare": ";".join(selected_compare),
-    #             "comparison_used": 1,
-    #         },
-    #     )
-
-    if st.button("我已看完推薦結果與權重，前往 Step 4", key="to_step4_btn"):
+    if st.button("我已看完推薦結果與權重，前往 Step 4"):
         if not require_participant_id():
             st.stop()
-        log_event(
-            results_dir,
-            "recommendation_viewed",
-            {
-                "recommended_risk": risk,
-                "recommended_return": ret,
-                "selected_assets": int(np.sum(w > 1e-8)),
-                "portfolio_weights": "; ".join(
-                    [f"{row['資產編號']}={row['權重百分比']}" for _, row in weights_df.iterrows()]
-                ),
-            },
-        )
+
+        st.session_state.response_buffer.update({
+            "step3_time": datetime.now().isoformat(timespec="seconds"),
+            "algorithm": rec["algorithm"],
+            "selected_k": rec["K"],
+            "seed": rec["seed"],
+            "recommended_risk": risk,
+            "recommended_return": ret,
+            "selected_assets": selected_assets,
+            "portfolio_weights": "; ".join(
+                [f"{row['資產編號']}={row['權重百分比']}" for _, row in weights_df.iterrows()]
+            ),
+        })
+
         st.session_state.current_step = 4
         st.rerun()
 
@@ -1213,7 +1153,6 @@ def render_step4(metric_row, heatmap_points, rec, results_dir):
 
     st.header("Step 4｜推薦穩定性判斷")
     st.caption(f"目前檢查的是 K = {rec['K']} 的 ECMADE-MOO 推薦穩定性。")
-    st.caption("Step 1 已經看過 PF overlay 與 heatmap；這一步不重複顯示熱力圖，而是要求使用者根據前面看到的圖與下方指標摘要做判斷。")
 
     if metric_row is None:
         st.warning("找不到目前 ECMADE-MOO 的穩定性指標")
@@ -1231,19 +1170,14 @@ def render_step4(metric_row, heatmap_points, rec, results_dir):
     c4.metric("IGD", f"{igd:.3f}" if not pd.isna(igd) else "N/A")
 
     st.info(
-        "請回想 Step 1 的 PF Heatmap：如果 ECMADE-MOO 的熱區比 NSGA-II 更集中，"
-        "且 Consistency / PF Overlap 較高，代表推薦結果較穩定；"
-        "如果熱區分散或指標不佳，則建議提高覆核。"
+        "請根據前面看到的 PF Overlay、PF Heatmap 與目前的穩定性指標，"
+        "判斷 ECMADE-MOO 的推薦是否穩定。"
     )
 
     answer = st.radio(
-        "根據前面的熱力圖與目前指標摘要，你如何判斷 ECMADE-MOO 的 recommendation？",
-        [
-            "穩定",
-            "普通",
-            "不穩定",
-            "不確定",
-        ],
+        "根據推薦穩定性資訊，你如何判斷 ECMADE-MOO 的 recommendation？",
+        ["穩定", "普通", "不穩定", "不確定"],
+        key="recommendation_stability_radio",
     )
 
     reason = ""
@@ -1251,23 +1185,23 @@ def render_step4(metric_row, heatmap_points, rec, results_dir):
         reason = st.text_area(
             "請說明不確定原因",
             placeholder="例如：heatmap 分散、指標不懂、推薦點風險太高等。",
+            key="recommendation_stability_reason_text",
         )
 
     if st.button("提交推薦穩定性判斷，前往 Step 5"):
         if not require_participant_id():
             st.stop()
-        log_event(
-            results_dir,
-            "recommendation_stability_submitted",
-            {
-                "recommendation_stability": answer,
-                "recommendation_stability_reason": reason,
-                "consistency": float(consistency) if not pd.isna(consistency) else "",
-                "pf_overlap": float(overlap) if not pd.isna(overlap) else "",
-                "hv": float(hv) if not pd.isna(hv) else "",
-                "igd": float(igd) if not pd.isna(igd) else "",
-            },
-        )
+
+        st.session_state.response_buffer.update({
+            "step4_time": datetime.now().isoformat(timespec="seconds"),
+            "recommendation_stability": answer,
+            "recommendation_stability_reason": reason,
+            "recommendation_consistency": float(consistency) if not pd.isna(consistency) else "",
+            "pf_overlap": float(overlap) if not pd.isna(overlap) else "",
+            "hv": float(hv) if not pd.isna(hv) else "",
+            "igd": float(igd) if not pd.isna(igd) else "",
+        })
+
         st.session_state.current_step = 5
         st.rerun()
 
@@ -1278,37 +1212,34 @@ def render_step5(results_dir):
 
     st.header("Step 5｜你是否願意採納此推薦？")
 
-    confidence = st.slider("你對目前決策的信心程度", 1, 7, 4, key="decision_confidence_step5")
-
     answer = st.radio(
         "根據所有 stability visualization 與 recommendation 結果，你是否願意採納此投資推薦？",
-        [
-            "願意採納",
-            "需要更多資訊",
-            "不願意採納",
-            "不確定",
-        ],
-        key="adoption_answer_step5",
+        ["願意採納", "需要更多資訊", "不願意採納", "不確定"],
+        key="recommendation_adoption_radio",
     )
 
     reason = st.text_area(
         "請說明原因",
         placeholder="例如：Heatmap 穩定所以相信、IGD 看不懂、風險太高等。",
-        key="adoption_reason_step5",
+        key="recommendation_adoption_reason_text",
     )
 
-    if st.button("提交採納判斷，前往 Step 6", key="to_step6_btn"):
+    if st.button("提交採納建議，前往 Step 6"):
         if not require_participant_id():
             st.stop()
-        log_event(
-            results_dir,
-            "recommendation_adoption_submitted",
-            {
-                "recommendation_adoption": answer,
-                "recommendation_adoption_reason": reason,
-                "confidence_score": confidence,
-            },
+
+        st.session_state.response_buffer.update({
+            "timestamp_adoption": datetime.now().isoformat(timespec="seconds"),
+            "participant_id": st.session_state.get("participant_id", ""),
+            "recommendation_adoption": answer,
+            "recommendation_adoption_reason": reason,
+        })
+
+        append_csv(
+            Path(results_dir) / "hci_behavior_log.csv",
+            st.session_state.response_buffer.copy()
         )
+
         st.session_state.current_step = 6
         st.rerun()
 
@@ -1319,83 +1250,40 @@ def render_step6(results_dir):
 
     st.header("Step 6｜量表評定")
 
-    q1 = st.slider("穩定性視覺化有幫助我理解演算法差異", 1, 5, 3, key="q1")
-    q2 = st.slider("PF Heatmap 有幫助我判斷穩定性", 1, 5, 3, key="q2")
-    q3 = st.slider("HV / IGD 說明有幫助我理解模型表現", 1, 5, 3, key="q3")
-    q4 = st.slider("我相信 ECMADE-MOO 比 NSGA-II 更穩定", 1, 5, 3, key="q4")
-    q5 = st.slider("我相信 ECMADE-MOO 的 recommendation", 1, 5, 3, key="q5")
-    q6 = st.slider("這個平台有幫助我覆核 AI recommendation", 1, 5, 3, key="q6")
-    q7 = st.slider("整體平台容易理解", 1, 5, 3, key="q7")
+    q1 = st.slider("穩定性視覺化有幫助我理解演算法差異", 1, 5, 3)
+    q2 = st.slider("PF Heatmap 有幫助我判斷穩定性", 1, 5, 3)
+    q3 = st.slider("HV / IGD 說明有幫助我理解模型表現", 1, 5, 3)
+    q4 = st.slider("我相信 ECMADE-MOO 比 NSGA-II 更穩定", 1, 5, 3)
+    q5 = st.slider("我相信 ECMADE-MOO 的 recommendation", 1, 5, 3)
+    q6 = st.slider("這個平台有幫助我覆核 AI recommendation", 1, 5, 3)
+    q7 = st.slider("整體平台容易理解", 1, 5, 3)
 
-    st.subheader("開放式回饋")
-    feedback = st.text_area("其他想法或建議", key="feedback")
+    feedback = st.text_area("開放式回饋")
 
-    st.subheader("Post-task Interview")
-    q_open1 = st.text_area("哪個資訊最影響你的決策？", key="decision_factor")
-    q_open2 = st.text_area("哪個 explanation 最有幫助？", key="helpful_explanation")
-    q_open3 = st.text_area("哪裡讓你感到困惑？", key="confusion_point")
-
-    if st.button("提交量表，完成任務", key="submit_questionnaire_btn"):
+    if st.button("提交量表，完成任務"):
         if not require_participant_id():
             st.stop()
-        append_csv(
-            Path(results_dir)/
-            "hci_questionnaire_log.csv",
-        
-            {
-        
-                "timestamp":
-                datetime.now().isoformat(
-                    timespec="seconds"
-                ),
-        
-                "participant_id":
-                st.session_state.participant_id,
-        
-        
-                # ===== Trust =====
-        
-                "stability_visualization_understanding":
-                q1,
-        
-                "heatmap_helpfulness":
-                q2,
-        
-                "hv_igd_understanding":
-                q3,
-        
-                "algorithm_trust_score":
-                q4,
-        
-                "recommendation_trust_score":
-                q5,
-        
-                "verification_support":
-                q6,
-        
-                "platform_usability":
-                q7,
-        
-        
-                # ===== Open question =====
-        
-                "feedback":
-                feedback,
-        
-                "decision_factor":
-                q_open1,
-        
-                "helpful_explanation":
-                q_open2,
-        
-                "confusion_point":
-                q_open3
-        
-            }
-        )
-        log_event(results_dir, "questionnaire_submitted")
-        st.success("任務完成")
 
+        questionnaire_row = {
+            "timestamp_questionnaire": datetime.now().isoformat(timespec="seconds"),
+            "participant_id": st.session_state.get("participant_id", ""),
+            "selected_k": st.session_state.get("selected_k", ""),
+            "stability_visualization_understanding": q1,
+            "heatmap_helpfulness": q2,
+            "hv_igd_understanding": q3,
+            "algorithm_trust": q4,
+            "recommendation_trust": q5,
+            "verification_support": q6,
+            "platform_usability": q7,
+            "feedback": feedback,
+        }
+
+        append_csv(
+            Path(results_dir) / "hci_questionnaire_log.csv",
+            questionnaire_row
+        )
+
+        st.success("任務完成，資料已寫入 Google Sheet。")
 
 def run_app(results_dir):
     st.set_page_config(
