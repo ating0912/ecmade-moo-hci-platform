@@ -800,20 +800,32 @@ def render_user_profile(results_dir):
     col1,col2,col3=st.columns(3)
 
     with col1:
-        exp=st.selectbox("投資經驗",["無","<1年","1–3年",">3年"],key="invest_exp")
+        exp=st.selectbox("投資經驗",["無","<1年","1–3年",">3年"],key="investment_experience")
     with col2:
-        risk_pref=st.selectbox("風險偏好",["保守型","穩健型","積極型"],key="risk_pref")
+        risk_pref=st.selectbox("風險偏好",["保守型","穩健型","積極型"],key="risk_preference")
     with col3:
-        ai_exp=st.selectbox("AI使用經驗",["很少","偶爾","經常"],key="ai_exp")
+        ai_exp=st.selectbox("AI使用經驗",["很少","偶爾","經常"],key="ai_experience")
 
     if st.button("儲存使用者資料"):
-        if require_participant_id():
-            log_event(results_dir,"user_profile_saved",{
-                "investment_experience":exp,
-                "risk_preference":risk_pref,
-                "ai_experience":ai_exp
-            })
-            st.success("資料已儲存")
+         if not require_participant_id():
+            st.stop()
+    
+        user_profile_row = {
+            "timestamp_profile": datetime.now().isoformat(timespec="seconds"),
+            "participant_id": st.session_state.get("participant_id", ""),
+            "investment_experience": st.session_state.get("investment_experience", ""),
+            "risk_preference": st.session_state.get("risk_preference", ""),
+            "ai_experience": st.session_state.get("ai_experience", ""),
+        }
+    
+        st.session_state.response_buffer.update(user_profile_row)
+    
+        append_csv(
+            Path(results_dir) / "hci_behavior_log.csv",
+            user_profile_row
+        )
+    
+        st.success("使用者資料已儲存。")
 
 def render_participant_input_top():
     st.markdown("## 受試者資料")
