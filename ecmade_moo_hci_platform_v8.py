@@ -810,22 +810,22 @@ def render_user_profile(results_dir):
          if not require_participant_id():
             st.stop()
     
-        user_profile_row = {
-            "timestamp_profile": datetime.now().isoformat(timespec="seconds"),
-            "participant_id": st.session_state.get("participant_id", ""),
-            "investment_experience": st.session_state.get("investment_experience", ""),
-            "risk_preference": st.session_state.get("risk_preference", ""),
-            "ai_experience": st.session_state.get("ai_experience", ""),
-        }
-    
-        st.session_state.response_buffer.update(user_profile_row)
-    
-        append_csv(
-            Path(results_dir) / "hci_behavior_log.csv",
-            user_profile_row
-        )
-    
-        st.success("使用者資料已儲存。")
+            user_profile_row = {
+                "timestamp_profile": datetime.now().isoformat(timespec="seconds"),
+                "participant_id": st.session_state.get("participant_id", ""),
+                "investment_experience": st.session_state.get("investment_experience", ""),
+                "risk_preference": st.session_state.get("risk_preference", ""),
+                "ai_experience": st.session_state.get("ai_experience", ""),
+            }
+        
+            st.session_state.response_buffer.update(user_profile_row)
+        
+            append_csv(
+                Path(results_dir) / "hci_behavior_log.csv",
+                user_profile_row
+            )
+        
+            st.success("使用者資料已儲存。")
 
 def render_participant_input_top():
     st.markdown("## 受試者資料")
