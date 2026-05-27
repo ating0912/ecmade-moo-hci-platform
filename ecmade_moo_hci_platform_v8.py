@@ -287,225 +287,125 @@ def get_google_worksheet_name(path):
 
 
 def append_google_sheet(path, row):
-
     try:
-
-        st.write("DEBUG row:", row)
-        st.write("DEBUG SPREADSHEET_ID:", SPREADSHEET_ID)
-
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
+            "https://www.googleapis.com/auth/drive",
         ]
 
         creds = Credentials.from_service_account_info(
             dict(st.secrets["gcp_service_account"]),
-            scopes=scopes
+            scopes=scopes,
         )
 
         client = gspread.authorize(creds)
-
-        spreadsheet = client.open_by_key(
-            SPREADSHEET_ID
-        )
-
-        st.success(
-            f"成功開啟 Google Sheet: {spreadsheet.title}"
-        )
+        spreadsheet = client.open_by_key(SPREADSHEET_ID)
 
         worksheet_name = get_google_worksheet_name(path)
 
-        st.write(
-            "工作表:",
-            worksheet_name
-        )
-
         try:
-
-            sheet = spreadsheet.worksheet(
-                worksheet_name
-            )
-
-        except:
-
-            st.warning(
-                f"{worksheet_name} 不存在，自動建立"
-            )
-
+            sheet = spreadsheet.worksheet(worksheet_name)
+        except gspread.WorksheetNotFound:
             sheet = spreadsheet.add_worksheet(
                 title=worksheet_name,
                 rows=1000,
-                cols=100
+                cols=100,
             )
 
-        # 清掉空值
-        row = {
-
-            k:v
-
-            for k,v in row.items()
-
-            if v is not None and v!=""
-
+        # 清掉空值，避免覆蓋舊資料
+        clean_row = {
+            str(k).strip(): v
+            for k, v in row.items()
+            if v is not None and v != ""
         }
 
-        headers = sheet.row_values(1)
-
-        # 第一次建立header
-        if not headers:
-
-            headers = list(
-                row.keys()
-            )
-
-            sheet.update(
-                "1:1",
-                [headers]
-            )
-
-            st.success(
-                "建立欄位成功"
-            )
-
-        else:
-
-            missing = [
-
-                c
-
-                for c in row.keys()
-
-                if c not in headers
-
-            ]
-
-            if missing:
-
-                headers.extend(
-                    missing
-                )
-
-                sheet.update(
-                    "1:1",
-                    [headers]
-                )
-
-                st.info(
-                    f"新增欄位:{missing}"
-                )
-
-
-        pid = str(
-
-            row.get(
-                "participant_id",
-                ""
-            )
-
-        )
-
-
-        if pid=="":
-
-            st.error(
-                "participant_id 空白"
-            )
-
+        if "participant_id" not in clean_row:
+            st.error("Google Sheets 寫入失敗：缺少 participant_id")
             return
 
+        pid = str(clean_row["participant_id"]).strip()
 
-        participant_col = headers.index(
-            "participant_id"
-        )+1
+        if not pid:
+            st.error("Google Sheets 寫入失敗：participant_id 空白")
+            return
 
+        # 讀取目前表頭
+        headers = [h.strip() for h in sheet.row_values(1)]
 
-        participants = sheet.col_values(
-            participant_col
-        )
+        # 若表頭是空的，直接用 row 的 key 建立
+        if not headers:
+            headers = list(clean_row.keys())
+            sheet.update("1:1", [headers])
 
+        # 自動補上 Google Sheet 沒有的欄位
+        missing_headers = [
+            col for col in clean_row.keys()
+            if col not in headers
+        ]
 
-        target_row=None
+        if missing_headers:
+            headers.extend(missing_headers)
+            sheet.update("1:1", [headers])
 
+        # 重新建立欄位位置對照表
+        header_map = {
+            col: idx + 1
+            for idx, col in enumerate(headers)
+        }
 
-        for idx,p in enumerate(
+        participant_col = header_map["participant_id"]
 
-            participants[1:],
-            start=2
+        # 找 participant_id 對應列
+        participant_values = sheet.col_values(participant_col)
 
-        ):
+        target_row = None
 
-            if str(p)==pid:
-
-                target_row=idx
+        for idx, value in enumerate(participant_values[1:], start=2):
+            if str(value).strip() == pid:
+                target_row = idx
                 break
 
-
-        values=[]
-
-        for h in headers:
-
-            values.append(
-                row.get(h,"")
-            )
-
-
+        # 如果沒有這個 participant，新增空白列
         if target_row is None:
+            empty_row = [""] * len(headers)
+            empty_row[participant_col - 1] = pid
 
             sheet.append_row(
-                values,
-                value_input_option="USER_ENTERED"
+                empty_row,
+                value_input_option="USER_ENTERED",
             )
 
-            st.success(
-                f"新增 participant={pid}"
+            target_row = len(sheet.col_values(participant_col))
+
+        # 依照欄位名稱寫入正確位置，不依賴順序
+        cell_updates = []
+
+        for col_name, value in clean_row.items():
+            if col_name not in header_map:
+                continue
+
+            col_index = header_map[col_name]
+
+            cell_updates.append({
+                "range": gspread.utils.rowcol_to_a1(
+                    target_row,
+                    col_index,
+                ),
+                "values": [[value]],
+            })
+
+        if cell_updates:
+            sheet.batch_update(
+                cell_updates,
+                value_input_option="USER_ENTERED",
             )
 
-        else:
-
-            old = sheet.row_values(
-                target_row
-            )
-
-            old += [""] * (
-                len(headers)-len(old)
-            )
-
-            merged=[]
-
-            for h,o,n in zip(
-                headers,
-                old,
-                values
-            ):
-
-                if n!="":
-                    merged.append(n)
-
-                else:
-                    merged.append(o)
-
-
-            sheet.update(
-
-                f"A{target_row}",
-
-                [merged],
-
-                value_input_option="USER_ENTERED"
-
-            )
-
-            st.success(
-                f"更新 participant={pid}"
-            )
-
-
-    except Exception as e:
-
-        st.error(
-            f"Google Sheet錯誤：{type(e).__name__}"
+        st.success(
+            f"已依欄位名稱寫入 Google Sheet：{worksheet_name} / participant_id={pid}"
         )
 
+    except Exception as e:
+        st.error(f"Google Sheets 寫入失敗：{type(e).__name__}: {e}")
         st.exception(e)
 
 # ============================================================
