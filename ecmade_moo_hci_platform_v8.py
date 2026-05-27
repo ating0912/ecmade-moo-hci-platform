@@ -125,33 +125,53 @@ def choose_ecmade_record(records):
     pool = ecmade if ecmade else records
     return sorted(pool, key=lambda r: (abs(r["K"] - 10), r["seed"]))[0]
 
+SPREADSHEET_ID="1MNKE9clqb5EwFOLhOCsr6aKwBtBgIczD6tVz94iyv4U"
+
 def append_google_sheet(path,row):
 
-    scope = [
+    creds_dict=dict(
+        st.secrets["gcp_service_account"]
+    )
+
+    scopes=[
 
         "https://www.googleapis.com/auth/spreadsheets",
 
         "https://www.googleapis.com/auth/drive"
-
     ]
 
     creds=Credentials.from_service_account_info(
-
-        st.secrets["gcp_service_account"],
-
-        scopes=scope
-
+        creds_dict,
+        scopes=scopes
     )
 
-    client=gspread.authorize(creds)
-
-    sheet=client.open(
-        "ECMADE_HCI_Log"
+    client=gspread.authorize(
+        creds
     )
 
-    worksheet=sheet.sheet1
+    spreadsheet=client.open_by_key(
+        SPREADSHEET_ID
+    )
 
-    worksheet.append_row(
+    filename=path.stem.lower()
+
+    if "behavior" in filename:
+
+        sheet=spreadsheet.worksheet(
+            "Behavior_Log"
+        )
+
+    elif "questionnaire" in filename:
+
+        sheet=spreadsheet.worksheet(
+            "Questionnaire_Log"
+        )
+
+    else:
+
+        sheet=spreadsheet.sheet1
+
+    sheet.append_row(
         list(row.values())
     )
 
