@@ -153,7 +153,7 @@ def get_metric_row(metrics, algorithm, K):
 def choose_ecmade_record(records):
     ecmade = [r for r in records if r["algorithm"] == "ECMADE-MOO"]
     pool = ecmade if ecmade else records
-    return sorted(pool, key=lambda r: (abs(r["K"] - 10), r["seed"]))[0]
+    return sorted(pool, key=lambda r: (abs(r["K"] - 5), r["seed"]))[0]
 
 
 def get_row_key(row: Dict) -> str:
