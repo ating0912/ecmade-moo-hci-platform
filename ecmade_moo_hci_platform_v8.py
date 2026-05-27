@@ -569,6 +569,27 @@ def render_log_field_explanation():
 
 
 
+
+def render_user_profile(results_dir):
+    st.markdown("### 使用者背景資料")
+    col1,col2,col3=st.columns(3)
+
+    with col1:
+        exp=st.selectbox("投資經驗",["無","<1年","1–3年",">3年"],key="invest_exp")
+    with col2:
+        risk_pref=st.selectbox("風險偏好",["保守型","穩健型","積極型"],key="risk_pref")
+    with col3:
+        ai_exp=st.selectbox("AI使用經驗",["很少","偶爾","經常"],key="ai_exp")
+
+    if st.button("儲存使用者資料"):
+        if require_participant_id():
+            log_event(results_dir,"user_profile_saved",{
+                "investment_experience":exp,
+                "risk_preference":risk_pref,
+                "ai_experience":ai_exp
+            })
+            st.success("資料已儲存")
+
 def render_participant_input_top():
     st.markdown("## 受試者資料")
     st.info("請先填寫受試者編號。送出任何答案前，系統會檢查是否已填寫。")
@@ -794,6 +815,8 @@ def render_step2(results_dir):
 
     st.header("Step 2｜你是否相信 ECMADE-MOO 較穩定？")
 
+    confidence=st.slider("你對目前決策的信心程度",1,7,4)
+
     answer = st.radio(
         "根據剛剛的穩定性視覺化與指標表格，你是否相信 ECMADE-MOO 比 NSGA-II 更穩定？",
         [
@@ -859,6 +882,15 @@ def render_step3(rec, PF_F, f, w, metric_row, results_dir):
     render_recommendation_pf(PF_F, f)
 
     st.success(build_step3_conclusion(PF_F, f, w, metric_row))
+    with st.expander("查看推薦依據（Evidence Panel）"):
+        st.write("Sharpe Ratio ↑")
+        st.write("Downside Risk ↓")
+        st.write("30次 run 中穩定出現")
+        st.write("Recommendation consistency較高")
+
+        if st.button("我查看了推薦依據"):
+            log_event(results_dir,"evidence_clicked")
+
 
     st.subheader("AI 推薦投資組合權重")
 
@@ -882,7 +914,45 @@ def render_step3(rec, PF_F, f, w, metric_row, results_dir):
         "該資產配置約 20 萬。這裡的 Asset 編號對應 OR-Library 資料中的資產順序。"
     )
 
+    
+    
+    st.subheader("Warning / Conflict Cue")
+
+    if risk>np.mean(pf_to_risk_return(PF_F)[0]):
+        st.warning("⚠ 高報酬可能伴隨較高風險，建議進一步查看推薦依據。")
+
+    if metric_row is not None:
+        consistency=metric_row.get("recommendation_consistency",0)
+
+        if consistency<0.5:
+            st.error("⚠ Recommendation consistency 偏低，不同 run 可能產生不同推薦結果。")
+
+    if st.button("查看 Warning 詳細資訊"):
+        log_event(results_dir,"warning_clicked")
+
+st.subheader("Compare Alternatives")
+
+    compare_df=pd.DataFrame({
+        "Portfolio":["A","B","C"],
+        "Return":[ret*0.9,ret,ret*1.1],
+        "Risk":[risk*0.8,risk,risk*1.2],
+        "Stability":[90,87,75]
+    })
+
+    st.dataframe(compare_df,hide_index=True)
+
+    selected_compare=st.multiselect(
+        "加入比較",
+        ["A","B","C"]
+    )
+
+    if selected_compare:
+        log_event(results_dir,"compare_used",{
+            "selected_compare":";".join(selected_compare)
+        })
+
     if st.button("我已看完推薦結果與權重，前往 Step 4"):
+
         if not require_participant_id():
             st.stop()
         log_event(
@@ -996,6 +1066,7 @@ def render_step5(results_dir):
             {
                 "recommendation_adoption": answer,
                 "recommendation_adoption_reason": reason,
+                "confidence_score": confidence,
             },
         )
         st.session_state.current_step = 6
@@ -1016,7 +1087,24 @@ def render_step6(results_dir):
     q6 = st.slider("這個平台有幫助我覆核 AI recommendation", 1, 5, 3)
     q7 = st.slider("整體平台容易理解", 1, 5, 3)
 
-    feedback = st.text_area("開放式回饋")
+    
+feedback = st.text_area("開放式回饋")
+
+st.subheader("Post-task Interview")
+
+q_open1=st.text_area(
+"哪個資訊最影響你的決策？"
+)
+
+q_open2=st.text_area(
+"哪個 explanation 最有幫助？"
+)
+
+q_open3=st.text_area(
+"哪裡讓你感到困惑？"
+)
+
+
 
     if st.button("提交量表，完成任務"):
         if not require_participant_id():
@@ -1033,7 +1121,10 @@ def render_step6(results_dir):
                 "recommendation_trust": q5,
                 "verification_support": q6,
                 "platform_usability": q7,
-                "feedback": feedback,
+                 "feedback": feedback,
+                "decision_factor":q_open1,
+                "helpful_explanation":q_open2,
+                "confusion_point":q_open3,
             },
         )
 
@@ -1067,6 +1158,7 @@ def run_app(results_dir):
     st.divider()
 
     render_participant_input_top()
+    render_user_profile(results_dir)
     st.divider()
 
     # 使用側邊欄選擇的 K 值切換已完成實驗結果
