@@ -712,55 +712,7 @@ def render_metrics_table(metrics, K):
 
 
 def render_recommendation_pf(PF_F, f):
-    # ===== AI推薦摘要 =====
     
-    st.subheader("AI Recommendation Summary")
-    
-    if risk < 0.01:
-    
-        risk_level = "低風險"
-    
-    elif risk < 0.03:
-    
-        risk_level = "中風險"
-    
-    else:
-    
-        risk_level = "高風險"
-    
-    
-    st.success(
-        f"""
-        AI 推薦結果：
-    
-        此投資組合預期報酬為 **{ret:.4f}**，
-        風險為 **{risk:.4f}**，
-        共選擇 **{selected_assets}** 個資產。
-    
-        AI 判斷此組合屬於 **{risk_level}** 類型，
-        並位於 Pareto Front 較穩定區域。
-        """
-    )
-    
-    # ===== 原本warning =====
-    
-    st.warning(
-        """
-        注意：
-    
-        此推薦結果來自 ECMADE-MOO 多次獨立實驗中的代表解，
-        並非保證獲利。
-    
-        請同時參考：
-    
-        • PF Overlay  
-        • PF Heatmap  
-        • HV  
-        • IGD  
-    
-        判斷推薦結果是否具有穩定性與可信度。
-        """
-    )
     fig, ax = plt.subplots(figsize=(8, 5))
 
     risk, ret = pf_to_risk_return(PF_F)
@@ -1144,7 +1096,55 @@ def render_step3(rec, PF_F, f, w, metric_row, results_dir):
     )
 
     render_recommendation_pf(PF_F, f)
-
+    # ===== AI推薦摘要 =====
+    
+    st.subheader("AI Recommendation Summary")
+    
+    if risk < 0.01:
+    
+        risk_level = "低風險"
+    
+    elif risk < 0.03:
+    
+        risk_level = "中風險"
+    
+    else:
+    
+        risk_level = "高風險"
+    
+    
+    st.success(
+        f"""
+        AI 推薦結果：
+    
+        此投資組合預期報酬為 **{ret:.4f}**，
+        風險為 **{risk:.4f}**，
+        共選擇 **{selected_assets}** 個資產。
+    
+        AI 判斷此組合屬於 **{risk_level}** 類型，
+        並位於 Pareto Front 較穩定區域。
+        """
+    )
+    
+    # ===== 原本warning =====
+    
+    st.warning(
+        """
+        注意：
+    
+        此推薦結果來自 ECMADE-MOO 多次獨立實驗中的代表解，
+        並非保證獲利。
+    
+        請同時參考：
+    
+        • PF Overlay  
+        • PF Heatmap  
+        • HV  
+        • IGD  
+    
+        判斷推薦結果是否具有穩定性與可信度。
+        """
+    )
     st.success(build_step3_conclusion(PF_F, f, w, metric_row))
 
     st.subheader("AI 推薦投資組合權重")
