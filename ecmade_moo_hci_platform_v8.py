@@ -1161,32 +1161,32 @@ def render_step3(rec, PF_F, f, w, metric_row, results_dir):
     # ==========================
     # Compare Alternatives
     # ==========================
-    st.subheader("Compare Alternatives")
+    # st.subheader("Compare Alternatives")
 
-    compare_df = pd.DataFrame({
-        "Portfolio": ["A", "B", "C"],
-        "Return": [ret * 0.9, ret, ret * 1.1],
-        "Risk": [risk * 0.8, risk, risk * 1.2],
-        "Stability": [90, 87, 75],
-    })
+    # compare_df = pd.DataFrame({
+    #     "Portfolio": ["A", "B", "C"],
+    #     "Return": [ret * 0.9, ret, ret * 1.1],
+    #     "Risk": [risk * 0.8, risk, risk * 1.2],
+    #     "Stability": [90, 87, 75],
+    # })
 
-    st.dataframe(compare_df, hide_index=True)
+    # st.dataframe(compare_df, hide_index=True)
 
-    selected_compare = st.multiselect(
-        "加入比較",
-        ["A", "B", "C"],
-        key="compare_selection_step3",
-    )
+    # selected_compare = st.multiselect(
+    #     "加入比較",
+    #     ["A", "B", "C"],
+    #     key="compare_selection_step3",
+    # )
 
-    if selected_compare:
-        log_event(
-            results_dir,
-            "compare_used",
-            {
-                "selected_compare": ";".join(selected_compare),
-                "comparison_used": 1,
-            },
-        )
+    # if selected_compare:
+    #     log_event(
+    #         results_dir,
+    #         "compare_used",
+    #         {
+    #             "selected_compare": ";".join(selected_compare),
+    #             "comparison_used": 1,
+    #         },
+    #     )
 
     if st.button("我已看完推薦結果與權重，前往 Step 4", key="to_step4_btn"):
         if not require_participant_id():
