@@ -30,6 +30,36 @@ import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 
+# ============================================================
+# Matplotlib Chinese Font Setup
+# ============================================================
+
+def setup_chinese_font():
+    """
+    Fix Chinese display in Matplotlib charts.
+    On Streamlit Cloud / Linux, install Noto Sans CJK or WenQuanYi if available.
+    On Windows, Microsoft JhengHei is usually available.
+    """
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    candidates = [
+        "Microsoft JhengHei",
+        "Microsoft YaHei",
+        "Noto Sans CJK TC",
+        "Noto Sans CJK SC",
+        "Noto Sans CJK JP",
+        "WenQuanYi Micro Hei",
+        "SimHei",
+        "Arial Unicode MS",
+    ]
+
+    matplotlib.rcParams["font.sans-serif"] = candidates
+    matplotlib.rcParams["axes.unicode_minus"] = False
+
+setup_chinese_font()
+
+
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -125,70 +155,68 @@ def choose_ecmade_record(records):
     pool = ecmade if ecmade else records
     return sorted(pool, key=lambda r: (abs(r["K"] - 10), r["seed"]))[0]
 
-SPREADSHEET_ID="1MNKE9clqb5EwFOLhOCsr6aKwBtBgIczD6tVz94iyv4U"
 
-def append_google_sheet(path,row):
+def get_row_key(row: Dict) -> str:
+    """
+    Same participant should stay in the same row.
+    If participant_id is missing, fall back to timestamp so data will not overwrite unexpectedly.
+    """
+    pid = str(row.get("participant_id", "")).strip()
+    return pid if pid else str(row.get("timestamp", datetime.now().isoformat(timespec="seconds")))
 
-    creds_dict=dict(
-        st.secrets["gcp_service_account"]
-    )
 
-    scopes=[
+def upsert_csv(path: Path, row: Dict, key_col: str = "participant_id"):
+    """
+    Update the same participant_id in the same row instead of appending a new row per step.
+    This makes one participant = one row for Behavior_Log and Questionnaire_Log.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
 
-        "https://www.googleapis.com/auth/spreadsheets",
+    # Remove empty values so old values are not overwritten by blanks.
+    clean_row = {k: v for k, v in row.items() if v is not None and v != ""}
 
-        "https://www.googleapis.com/auth/drive"
-    ]
-
-    creds=Credentials.from_service_account_info(
-        creds_dict,
-        scopes=scopes
-    )
-
-    client=gspread.authorize(
-        creds
-    )
-
-    spreadsheet=client.open_by_key(
-        SPREADSHEET_ID
-    )
-
-    filename=path.stem.lower()
-
-    if "behavior" in filename:
-
-        sheet=spreadsheet.worksheet(
-            "Behavior_Log"
-        )
-
-    elif "questionnaire" in filename:
-
-        sheet=spreadsheet.worksheet(
-            "Questionnaire_Log"
-        )
-
+    if path.exists():
+        df = pd.read_csv(path, encoding="utf-8-sig")
     else:
+        df = pd.DataFrame()
 
-        sheet=spreadsheet.sheet1
+    # Ensure all columns exist.
+    for col in clean_row.keys():
+        if col not in df.columns:
+            df[col] = ""
 
-    sheet.append_row(
-        list(row.values())
-    )
+    if key_col not in df.columns:
+        df[key_col] = ""
+
+    key = str(clean_row.get(key_col, "")).strip()
+
+    if key:
+        mask = df[key_col].astype(str).str.strip() == key
+    else:
+        mask = pd.Series([False] * len(df))
+
+    if mask.any():
+        idx = df.index[mask][0]
+        for col, val in clean_row.items():
+            df.at[idx, col] = val
+    else:
+        df = pd.concat([df, pd.DataFrame([clean_row])], ignore_index=True)
+
+    df.to_csv(path, index=False, encoding="utf-8-sig")
+
 
 def append_csv(path: Path, row: Dict):
     """
-    本機測試時寫入 CSV；公開平台則同步寫入 Google Sheets。
-    若 Google Sheets 寫入失敗，畫面會顯示錯誤原因。
+    Upsert locally and then upsert to Google Sheets.
+    Important: this no longer appends one new row per step.
     """
-    df = pd.DataFrame([row])
-
-    if path.exists():
-        df.to_csv(path, mode="a", header=False, index=False, encoding="utf-8-sig")
-    else:
-        df.to_csv(path, index=False, encoding="utf-8-sig")
+    upsert_csv(path, row, key_col="participant_id")
 
     try:
         append_google_sheet(path, row)
+    except NameError:
+        # Google Sheets is optional. Local CSV will still work.
+        pass
     except Exception as e:
         st.warning(f"Google Sheets 寫入失敗：{type(e).__name__}: {e}")
 
@@ -205,6 +233,123 @@ def log_event(results_dir, event_type, extra=None):
 
     row.update(extra)
     append_csv(Path(results_dir) / "hci_behavior_log.csv", row)
+
+
+
+# ============================================================
+# Google Sheets Upsert
+# ============================================================
+
+# Paste only the ID between /d/ and /edit from your Google Sheet URL.
+SPREADSHEET_ID = st.secrets.get("1MNKE9clqb5EwFOLhOCsr6aKwBtBgIczD6tVz94iyv4U", "")
+
+def get_google_worksheet_name(path: Path) -> str:
+    filename = path.stem.lower()
+
+    if "behavior" in filename:
+        return "Behavior_Log"
+
+    if "questionnaire" in filename:
+        return "Questionnaire_Log"
+
+    if "task" in filename:
+        return "Task_Result"
+
+    return "Behavior_Log"
+
+
+def append_google_sheet(path: Path, row: Dict):
+    """
+    Upsert one participant into one row in Google Sheets.
+    The first row must be headers. If headers are missing, they will be created.
+    """
+    if not SPREADSHEET_ID:
+        return
+
+    creds_dict = dict(st.secrets["gcp_service_account"])
+
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+
+    creds = Credentials.from_service_account_info(
+        creds_dict,
+        scopes=scopes,
+    )
+
+    client = gspread.authorize(creds)
+    spreadsheet = client.open_by_key(SPREADSHEET_ID)
+
+    worksheet_name = get_google_worksheet_name(path)
+
+    try:
+        sheet = spreadsheet.worksheet(worksheet_name)
+    except gspread.WorksheetNotFound:
+        sheet = spreadsheet.add_worksheet(
+            title=worksheet_name,
+            rows=2000,
+            cols=80,
+        )
+
+    clean_row = {k: v for k, v in row.items() if v is not None and v != ""}
+
+    # Read existing headers
+    headers = sheet.row_values(1)
+
+    if not headers:
+        headers = list(clean_row.keys())
+        sheet.update("1:1", [headers])
+    else:
+        # Add new columns if new fields appear later
+        missing = [k for k in clean_row.keys() if k not in headers]
+        if missing:
+            headers.extend(missing)
+            sheet.update("1:1", [headers])
+
+    key_col = "participant_id"
+
+    if key_col not in headers:
+        headers.append(key_col)
+        sheet.update("1:1", [headers])
+
+    key_idx = headers.index(key_col) + 1
+    pid = str(clean_row.get(key_col, "")).strip()
+
+    # If no participant id, append to avoid accidental overwrite
+    if not pid:
+        values = [clean_row.get(h, "") for h in headers]
+        sheet.append_row(values, value_input_option="USER_ENTERED")
+        return
+
+    # Find existing participant row
+    existing_pids = sheet.col_values(key_idx)
+    target_row = None
+
+    for i, value in enumerate(existing_pids[1:], start=2):
+        if str(value).strip() == pid:
+            target_row = i
+            break
+
+    values = [clean_row.get(h, "") for h in headers]
+
+    if target_row is None:
+        sheet.append_row(values, value_input_option="USER_ENTERED")
+    else:
+        # Merge old row with new values so blanks will not erase previous step data.
+        old_values = sheet.row_values(target_row)
+        old_values += [""] * (len(headers) - len(old_values))
+
+        merged = []
+        for h, old, new in zip(headers, old_values, values):
+            merged.append(new if new != "" else old)
+
+        end_col = len(headers)
+        sheet.update(
+            f"A{target_row}",
+            [merged],
+            value_input_option="USER_ENTERED",
+        )
 
 
 # ============================================================
@@ -965,115 +1110,40 @@ def render_step3(rec, PF_F, f, w, metric_row, results_dir):
 
     
     
-    # ==========================
-    # Warning / Conflict Cue
-    # ==========================
-
     st.subheader("Warning / Conflict Cue")
 
-    risk_values, _ = pf_to_risk_return(PF_F)
-
-    if risk > np.mean(risk_values):
-        st.warning(
-            "⚠ 高報酬可能伴隨較高風險，建議進一步查看推薦依據。"
-        )
+    if risk>np.mean(pf_to_risk_return(PF_F)[0]):
+        st.warning("⚠ 高報酬可能伴隨較高風險，建議進一步查看推薦依據。")
 
     if metric_row is not None:
+        consistency=metric_row.get("recommendation_consistency",0)
 
-        consistency = metric_row.get(
-            "recommendation_consistency",
-            np.nan
-        )
+        if consistency<0.5:
+            st.error("⚠ Recommendation consistency 偏低，不同 run 可能產生不同推薦結果。")
 
-        if not pd.isna(consistency):
+    if st.button("查看 Warning 詳細資訊"):
+        log_event(results_dir,"warning_clicked")
 
-            if consistency < 0.5:
-                st.error(
-                    "⚠ Recommendation consistency 偏低，不同 run 可能產生不同推薦結果。"
-                )
+st.subheader("Compare Alternatives")
 
-    if st.button(
-        "查看 Warning 詳細資訊",
-        key="warning_button"
-    ):
-
-        log_event(
-            results_dir,
-            "warning_clicked"
-        )
-
-    # ==========================
-    # Compare Alternatives
-    # ==========================
-
-    st.subheader("Compare Alternatives")
-
-    compare_df = pd.DataFrame({
-
-        "Portfolio":[
-            "A",
-            "B",
-            "C"
-        ],
-
-        "Return":[
-            ret*0.9,
-            ret,
-            ret*1.1
-        ],
-
-        "Risk":[
-            risk*0.8,
-            risk,
-            risk*1.2
-        ],
-
-        "Stability":[
-            90,
-            87,
-            75
-        ]
+    compare_df=pd.DataFrame({
+        "Portfolio":["A","B","C"],
+        "Return":[ret*0.9,ret,ret*1.1],
+        "Risk":[risk*0.8,risk,risk*1.2],
+        "Stability":[90,87,75]
     })
 
-    st.dataframe(
-        compare_df,
-        hide_index=True
-    )
+    st.dataframe(compare_df,hide_index=True)
 
-
-    selected_compare = st.multiselect(
-
+    selected_compare=st.multiselect(
         "加入比較",
-
-        [
-            "A",
-            "B",
-            "C"
-        ],
-
-        key="compare_selection"
-
+        ["A","B","C"]
     )
-
 
     if selected_compare:
-
-        log_event(
-
-            results_dir,
-
-            "compare_used",
-
-            {
-
-                "selected_compare":
-                ";".join(
-                    selected_compare
-                )
-
-            }
-
-        )
+        log_event(results_dir,"compare_used",{
+            "selected_compare":";".join(selected_compare)
+        })
 
     if st.button("我已看完推薦結果與權重，前往 Step 4"):
 
@@ -1198,105 +1268,46 @@ def render_step5(results_dir):
 
 
 def render_step6(results_dir):
-
     if st.session_state.current_step < 6:
         return
 
     st.header("Step 6｜量表評定")
 
-    # ======================
-    # Likert量表
-    # ======================
+    q1 = st.slider("穩定性視覺化有幫助我理解演算法差異", 1, 5, 3)
+    q2 = st.slider("PF Heatmap 有幫助我判斷穩定性", 1, 5, 3)
+    q3 = st.slider("HV / IGD 說明有幫助我理解模型表現", 1, 5, 3)
+    q4 = st.slider("我相信 ECMADE-MOO 比 NSGA-II 更穩定", 1, 5, 3)
+    q5 = st.slider("我相信 ECMADE-MOO 的 recommendation", 1, 5, 3)
+    q6 = st.slider("這個平台有幫助我覆核 AI recommendation", 1, 5, 3)
+    q7 = st.slider("整體平台容易理解", 1, 5, 3)
 
-    q1 = st.slider(
-        "穩定性視覺化有幫助我理解演算法差異",
-        1,5,3
-    )
+    
+feedback = st.text_area("開放式回饋")
 
-    q2 = st.slider(
-        "PF Heatmap 有幫助我判斷穩定性",
-        1,5,3
-    )
+st.subheader("Post-task Interview")
 
-    q3 = st.slider(
-        "HV / IGD 說明有幫助我理解模型表現",
-        1,5,3
-    )
+q_open1=st.text_area(
+"哪個資訊最影響你的決策？"
+)
 
-    q4 = st.slider(
-        "我相信 ECMADE-MOO 比 NSGA-II 更穩定",
-        1,5,3
-    )
+q_open2=st.text_area(
+"哪個 explanation 最有幫助？"
+)
 
-    q5 = st.slider(
-        "我相信 ECMADE-MOO 的 recommendation",
-        1,5,3
-    )
-
-    q6 = st.slider(
-        "這個平台有幫助我覆核 AI recommendation",
-        1,5,3
-    )
-
-    q7 = st.slider(
-        "整體平台容易理解",
-        1,5,3
-    )
+q_open3=st.text_area(
+"哪裡讓你感到困惑？"
+)
 
 
-    # ======================
-    # 開放回饋
-    # ======================
 
-    st.subheader("開放式回饋")
-
-    feedback = st.text_area(
-        "其他想法或建議"
-    )
-
-
-    # ======================
-    # Post-task Interview
-    # ======================
-
-    st.subheader("Post-task Interview")
-
-    q_open1 = st.text_area(
-        "哪個資訊最影響你的決策？"
-    )
-
-    q_open2 = st.text_area(
-        "哪個 explanation 最有幫助？"
-    )
-
-    q_open3 = st.text_area(
-        "哪裡讓你感到困惑？"
-    )
-
-
-    # ======================
-    # Submit
-    # ======================
-
-    if st.button(
-        "提交量表，完成任務"
-    ):
-
+    if st.button("提交量表，完成任務"):
         if not require_participant_id():
             st.stop()
-
         append_csv(
             Path(results_dir) / "hci_questionnaire_log.csv",
             {
-
-                "timestamp":
-                datetime.now().isoformat(
-                    timespec="seconds"
-                ),
-
-                "participant_id":
-                st.session_state.participant_id,
-
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "participant_id": st.session_state.participant_id,
                 "stability_visualization_understanding": q1,
                 "heatmap_helpfulness": q2,
                 "hv_igd_understanding": q3,
@@ -1304,26 +1315,15 @@ def render_step6(results_dir):
                 "recommendation_trust": q5,
                 "verification_support": q6,
                 "platform_usability": q7,
-
-                "feedback": feedback,
-
-                "decision_factor": q_open1,
-
-                "helpful_explanation": q_open2,
-
-                "confusion_point": q_open3,
-
-            }
+                 "feedback": feedback,
+                "decision_factor":q_open1,
+                "helpful_explanation":q_open2,
+                "confusion_point":q_open3,
+            },
         )
 
-        log_event(
-            results_dir,
-            "questionnaire_submitted"
-        )
-
-        st.success(
-            "任務完成"
-        )
+        log_event(results_dir, "questionnaire_submitted")
+        st.success("任務完成")
 
 
 def run_app(results_dir):
