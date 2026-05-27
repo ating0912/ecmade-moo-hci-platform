@@ -264,6 +264,7 @@ def append_google_sheet(path: Path, row: Dict):
     The first row must be headers. If headers are missing, they will be created.
     """
     if not SPREADSHEET_ID:
+        st.error("SPREADSHEET_ID 沒有讀到，請檢查 Render secrets 或 .streamlit/secrets.toml")
         return
 
     creds_dict = dict(st.secrets["gcp_service_account"])
