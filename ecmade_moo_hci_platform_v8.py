@@ -916,40 +916,115 @@ def render_step3(rec, PF_F, f, w, metric_row, results_dir):
 
     
     
+    # ==========================
+    # Warning / Conflict Cue
+    # ==========================
+
     st.subheader("Warning / Conflict Cue")
 
-    if risk>np.mean(pf_to_risk_return(PF_F)[0]):
-        st.warning("⚠ 高報酬可能伴隨較高風險，建議進一步查看推薦依據。")
+    risk_values, _ = pf_to_risk_return(PF_F)
+
+    if risk > np.mean(risk_values):
+        st.warning(
+            "⚠ 高報酬可能伴隨較高風險，建議進一步查看推薦依據。"
+        )
 
     if metric_row is not None:
-        consistency=metric_row.get("recommendation_consistency",0)
 
-        if consistency<0.5:
-            st.error("⚠ Recommendation consistency 偏低，不同 run 可能產生不同推薦結果。")
+        consistency = metric_row.get(
+            "recommendation_consistency",
+            np.nan
+        )
 
-    if st.button("查看 Warning 詳細資訊"):
-        log_event(results_dir,"warning_clicked")
+        if not pd.isna(consistency):
 
-st.subheader("Compare Alternatives")
+            if consistency < 0.5:
+                st.error(
+                    "⚠ Recommendation consistency 偏低，不同 run 可能產生不同推薦結果。"
+                )
 
-    compare_df=pd.DataFrame({
-        "Portfolio":["A","B","C"],
-        "Return":[ret*0.9,ret,ret*1.1],
-        "Risk":[risk*0.8,risk,risk*1.2],
-        "Stability":[90,87,75]
+    if st.button(
+        "查看 Warning 詳細資訊",
+        key="warning_button"
+    ):
+
+        log_event(
+            results_dir,
+            "warning_clicked"
+        )
+
+    # ==========================
+    # Compare Alternatives
+    # ==========================
+
+    st.subheader("Compare Alternatives")
+
+    compare_df = pd.DataFrame({
+
+        "Portfolio":[
+            "A",
+            "B",
+            "C"
+        ],
+
+        "Return":[
+            ret*0.9,
+            ret,
+            ret*1.1
+        ],
+
+        "Risk":[
+            risk*0.8,
+            risk,
+            risk*1.2
+        ],
+
+        "Stability":[
+            90,
+            87,
+            75
+        ]
     })
 
-    st.dataframe(compare_df,hide_index=True)
-
-    selected_compare=st.multiselect(
-        "加入比較",
-        ["A","B","C"]
+    st.dataframe(
+        compare_df,
+        hide_index=True
     )
 
+
+    selected_compare = st.multiselect(
+
+        "加入比較",
+
+        [
+            "A",
+            "B",
+            "C"
+        ],
+
+        key="compare_selection"
+
+    )
+
+
     if selected_compare:
-        log_event(results_dir,"compare_used",{
-            "selected_compare":";".join(selected_compare)
-        })
+
+        log_event(
+
+            results_dir,
+
+            "compare_used",
+
+            {
+
+                "selected_compare":
+                ";".join(
+                    selected_compare
+                )
+
+            }
+
+        )
 
     if st.button("我已看完推薦結果與權重，前往 Step 4"):
 
