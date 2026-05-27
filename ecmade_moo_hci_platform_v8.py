@@ -241,7 +241,8 @@ def log_event(results_dir, event_type, extra=None):
 # ============================================================
 
 # Paste only the ID between /d/ and /edit from your Google Sheet URL.
-SPREADSHEET_ID = st.secrets.get("1MNKE9clqb5EwFOLhOCsr6aKwBtBgIczD6tVz94iyv4U", "")
+SPREADSHEET_ID = "1MNKE9clqb5EwFOLhOCsr6aKwBtBgIczD6tVz94iyv4U"
+# SPREADSHEET_ID = st.secrets.get("SPREADSHEET_ID", "")
 
 def get_google_worksheet_name(path: Path) -> str:
     filename = path.stem.lower()
