@@ -1061,30 +1061,23 @@ def render_step3(rec, PF_F, f, w, metric_row, results_dir):
     st.markdown(
         """
         **圖說：**  
-        請查看上方固定圖表區的「圖 3｜ECMADE-MOO 推薦點」。紅色星號為 AI 推薦點，
-        可用來判斷推薦點是否位於可接受的風險—報酬區域。
-        """
-    )
-
-    st.markdown(
-        """
-        **圖說：**  
         紅色星號為 AI 推薦點。使用者可以觀察推薦點是否位於可接受的風險—報酬區域。
         """
     )
 
     render_recommendation_pf(PF_F, f)
-
     st.success(build_step3_conclusion(PF_F, f, w, metric_row))
-    with st.expander("查看推薦依據（Evidence Panel）"):
+
+    with st.expander("查看推薦依據（Evidence Panel）", expanded=False):
         st.write("Sharpe Ratio ↑")
         st.write("Downside Risk ↓")
-        st.write("30次 run 中穩定出現")
-        st.write("Recommendation consistency較高")
+        st.write("30 次 run 中穩定出現")
+        st.write("Recommendation consistency 較高")
 
-        if st.button("我查看了推薦依據"):
-            log_event(results_dir,"evidence_clicked")
-
+        if st.button("我查看了推薦依據", key="evidence_clicked_btn"):
+            if require_participant_id():
+                log_event(results_dir, "evidence_clicked", {"evidence_clicked": 1})
+                st.success("已記錄查看推薦依據")
 
     st.subheader("AI 推薦投資組合權重")
 
@@ -1108,45 +1101,64 @@ def render_step3(rec, PF_F, f, w, metric_row, results_dir):
         "該資產配置約 20 萬。這裡的 Asset 編號對應 OR-Library 資料中的資產順序。"
     )
 
-    
-    
+    # ==========================
+    # Warning / Conflict Cue
+    # ==========================
     st.subheader("Warning / Conflict Cue")
 
-    if risk>np.mean(pf_to_risk_return(PF_F)[0]):
-        st.warning("⚠ 高報酬可能伴隨較高風險，建議進一步查看推薦依據。")
+    risk_values, _ = pf_to_risk_return(PF_F)
+    warning_messages = []
+
+    if risk > float(np.mean(risk_values)):
+        warning_messages.append("高報酬可能伴隨較高風險，建議進一步查看推薦依據。")
 
     if metric_row is not None:
-        consistency=metric_row.get("recommendation_consistency",0)
+        consistency = metric_row.get("recommendation_consistency", np.nan)
+        if not pd.isna(consistency) and float(consistency) < 0.5:
+            warning_messages.append("Recommendation consistency 偏低，不同 run 可能產生不同推薦結果。")
 
-        if consistency<0.5:
-            st.error("⚠ Recommendation consistency 偏低，不同 run 可能產生不同推薦結果。")
+    if warning_messages:
+        for msg in warning_messages:
+            st.warning("⚠ " + msg)
+    else:
+        st.success("目前沒有明顯風險衝突提示，但仍建議使用者自行覆核。")
 
-    if st.button("查看 Warning 詳細資訊"):
-        log_event(results_dir,"warning_clicked")
+    if st.button("查看 Warning 詳細資訊", key="warning_button_step3"):
+        if require_participant_id():
+            log_event(results_dir, "warning_clicked", {"warning_clicked": 1})
+            st.success("已記錄 Warning 查看行為")
 
-st.subheader("Compare Alternatives")
+    # ==========================
+    # Compare Alternatives
+    # ==========================
+    st.subheader("Compare Alternatives")
 
-    compare_df=pd.DataFrame({
-        "Portfolio":["A","B","C"],
-        "Return":[ret*0.9,ret,ret*1.1],
-        "Risk":[risk*0.8,risk,risk*1.2],
-        "Stability":[90,87,75]
+    compare_df = pd.DataFrame({
+        "Portfolio": ["A", "B", "C"],
+        "Return": [ret * 0.9, ret, ret * 1.1],
+        "Risk": [risk * 0.8, risk, risk * 1.2],
+        "Stability": [90, 87, 75],
     })
 
-    st.dataframe(compare_df,hide_index=True)
+    st.dataframe(compare_df, hide_index=True)
 
-    selected_compare=st.multiselect(
+    selected_compare = st.multiselect(
         "加入比較",
-        ["A","B","C"]
+        ["A", "B", "C"],
+        key="compare_selection_step3",
     )
 
     if selected_compare:
-        log_event(results_dir,"compare_used",{
-            "selected_compare":";".join(selected_compare)
-        })
+        log_event(
+            results_dir,
+            "compare_used",
+            {
+                "selected_compare": ";".join(selected_compare),
+                "comparison_used": 1,
+            },
+        )
 
-    if st.button("我已看完推薦結果與權重，前往 Step 4"):
-
+    if st.button("我已看完推薦結果與權重，前往 Step 4", key="to_step4_btn"):
         if not require_participant_id():
             st.stop()
         log_event(
@@ -1236,6 +1248,8 @@ def render_step5(results_dir):
 
     st.header("Step 5｜你是否願意採納此推薦？")
 
+    confidence = st.slider("你對目前決策的信心程度", 1, 7, 4, key="decision_confidence_step5")
+
     answer = st.radio(
         "根據所有 stability visualization 與 recommendation 結果，你是否願意採納此投資推薦？",
         [
@@ -1244,14 +1258,16 @@ def render_step5(results_dir):
             "不願意採納",
             "不確定",
         ],
+        key="adoption_answer_step5",
     )
 
     reason = st.text_area(
         "請說明原因",
         placeholder="例如：Heatmap 穩定所以相信、IGD 看不懂、風險太高等。",
+        key="adoption_reason_step5",
     )
 
-    if st.button("提交採納判斷，前往 Step 6"):
+    if st.button("提交採納判斷，前往 Step 6", key="to_step6_btn"):
         if not require_participant_id():
             st.stop()
         log_event(
@@ -1273,34 +1289,23 @@ def render_step6(results_dir):
 
     st.header("Step 6｜量表評定")
 
-    q1 = st.slider("穩定性視覺化有幫助我理解演算法差異", 1, 5, 3)
-    q2 = st.slider("PF Heatmap 有幫助我判斷穩定性", 1, 5, 3)
-    q3 = st.slider("HV / IGD 說明有幫助我理解模型表現", 1, 5, 3)
-    q4 = st.slider("我相信 ECMADE-MOO 比 NSGA-II 更穩定", 1, 5, 3)
-    q5 = st.slider("我相信 ECMADE-MOO 的 recommendation", 1, 5, 3)
-    q6 = st.slider("這個平台有幫助我覆核 AI recommendation", 1, 5, 3)
-    q7 = st.slider("整體平台容易理解", 1, 5, 3)
+    q1 = st.slider("穩定性視覺化有幫助我理解演算法差異", 1, 5, 3, key="q1")
+    q2 = st.slider("PF Heatmap 有幫助我判斷穩定性", 1, 5, 3, key="q2")
+    q3 = st.slider("HV / IGD 說明有幫助我理解模型表現", 1, 5, 3, key="q3")
+    q4 = st.slider("我相信 ECMADE-MOO 比 NSGA-II 更穩定", 1, 5, 3, key="q4")
+    q5 = st.slider("我相信 ECMADE-MOO 的 recommendation", 1, 5, 3, key="q5")
+    q6 = st.slider("這個平台有幫助我覆核 AI recommendation", 1, 5, 3, key="q6")
+    q7 = st.slider("整體平台容易理解", 1, 5, 3, key="q7")
 
-    
-feedback = st.text_area("開放式回饋")
+    st.subheader("開放式回饋")
+    feedback = st.text_area("其他想法或建議", key="feedback")
 
-st.subheader("Post-task Interview")
+    st.subheader("Post-task Interview")
+    q_open1 = st.text_area("哪個資訊最影響你的決策？", key="decision_factor")
+    q_open2 = st.text_area("哪個 explanation 最有幫助？", key="helpful_explanation")
+    q_open3 = st.text_area("哪裡讓你感到困惑？", key="confusion_point")
 
-q_open1=st.text_area(
-"哪個資訊最影響你的決策？"
-)
-
-q_open2=st.text_area(
-"哪個 explanation 最有幫助？"
-)
-
-q_open3=st.text_area(
-"哪裡讓你感到困惑？"
-)
-
-
-
-    if st.button("提交量表，完成任務"):
+    if st.button("提交量表，完成任務", key="submit_questionnaire_btn"):
         if not require_participant_id():
             st.stop()
         append_csv(
@@ -1315,10 +1320,10 @@ q_open3=st.text_area(
                 "recommendation_trust": q5,
                 "verification_support": q6,
                 "platform_usability": q7,
-                 "feedback": feedback,
-                "decision_factor":q_open1,
-                "helpful_explanation":q_open2,
-                "confusion_point":q_open3,
+                "feedback": feedback,
+                "decision_factor": q_open1,
+                "helpful_explanation": q_open2,
+                "confusion_point": q_open3,
             },
         )
 
