@@ -796,36 +796,54 @@ def render_log_field_explanation():
 
 
 def render_user_profile(results_dir):
+    """
+    使用者背景資料區。
+    注意：按下「儲存使用者資料」時只暫存在 response_buffer，
+    不會立即寫入 Google Sheet。
+    真正寫入會在 Step5「提交採納建議，前往 Step 6」時一起寫入 Behavior_Log。
+    """
+
     st.markdown("### 使用者背景資料")
-    col1,col2,col3=st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
-        exp=st.selectbox("投資經驗",["無","<1年","1–3年",">3年"],key="investment_experience")
+        st.selectbox(
+            "投資經驗",
+            ["無", "<1年", "1–3年", ">3年"],
+            key="investment_experience",
+        )
+
     with col2:
-        risk_pref=st.selectbox("風險偏好",["保守型","穩健型","積極型"],key="risk_preference")
+        st.selectbox(
+            "風險偏好",
+            ["保守型", "穩健型", "積極型"],
+            key="risk_preference",
+        )
+
     with col3:
-        ai_exp=st.selectbox("AI使用經驗",["很少","偶爾","經常"],key="ai_experience")
+        st.selectbox(
+            "AI使用經驗",
+            ["很少", "偶爾", "經常"],
+            key="ai_experience",
+        )
 
     if st.button("儲存使用者資料"):
-         if not require_participant_id():
+        if not require_participant_id():
             st.stop()
-    
-            user_profile_row = {
-                "timestamp_profile": datetime.now().isoformat(timespec="seconds"),
-                "participant_id": st.session_state.get("participant_id", ""),
-                "investment_experience": st.session_state.get("investment_experience", ""),
-                "risk_preference": st.session_state.get("risk_preference", ""),
-                "ai_experience": st.session_state.get("ai_experience", ""),
-            }
-        
-            st.session_state.response_buffer.update(user_profile_row)
-        
-            append_csv(
-                Path(results_dir) / "hci_behavior_log.csv",
-                user_profile_row
-            )
-        
-            st.success("使用者資料已儲存。")
+
+        user_profile_row = {
+            "timestamp_profile": datetime.now().isoformat(timespec="seconds"),
+            "participant_id": st.session_state.get("participant_id", ""),
+            "investment_experience": st.session_state.get("investment_experience", ""),
+            "risk_preference": st.session_state.get("risk_preference", ""),
+            "ai_experience": st.session_state.get("ai_experience", ""),
+        }
+
+        # 只暫存，不寫入 Google Sheet / CSV
+        st.session_state.response_buffer.update(user_profile_row)
+
+        st.success("使用者資料已暫存，將於 Step5 提交採納建議時一起寫入。")
+
 
 def render_participant_input_top():
     st.markdown("## 受試者資料")
@@ -1289,13 +1307,26 @@ def render_step5(results_dir):
         if not require_participant_id():
             st.stop()
 
+        # 確保即使使用者沒有先按「儲存使用者資料」，背景資料也會被帶入
+        st.session_state.response_buffer.update({
+            "timestamp_profile": st.session_state.response_buffer.get(
+                "timestamp_profile",
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+            "participant_id": st.session_state.get("participant_id", ""),
+            "investment_experience": st.session_state.get("investment_experience", ""),
+            "risk_preference": st.session_state.get("risk_preference", ""),
+            "ai_experience": st.session_state.get("ai_experience", ""),
+        })
+
+        # Step5 採納資料
         st.session_state.response_buffer.update({
             "timestamp_adoption": datetime.now().isoformat(timespec="seconds"),
-            "participant_id": st.session_state.get("participant_id", ""),
             "recommendation_adoption": answer,
             "recommendation_adoption_reason": reason,
         })
 
+        # 只有這裡才把 Step1~Step5 + 使用者背景資料一次寫入 Behavior_Log
         append_csv(
             Path(results_dir) / "hci_behavior_log.csv",
             st.session_state.response_buffer.copy()
@@ -1328,6 +1359,9 @@ def render_step6(results_dir):
         questionnaire_row = {
             "timestamp_questionnaire": datetime.now().isoformat(timespec="seconds"),
             "participant_id": st.session_state.get("participant_id", ""),
+            "investment_experience": st.session_state.get("investment_experience", ""),
+            "risk_preference": st.session_state.get("risk_preference", ""),
+            "ai_experience": st.session_state.get("ai_experience", ""),
             "selected_k": st.session_state.get("selected_k", ""),
             "stability_visualization_understanding": q1,
             "heatmap_helpfulness": q2,
