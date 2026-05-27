@@ -1064,6 +1064,9 @@ def render_step2(results_dir):
             {
                 "algorithm_trust": answer,
                 "algorithm_trust_reason": reason,
+
+                # 新增
+                "algorithm_trust_confidence":confidence
             },
         )
         st.session_state.current_step = 3
@@ -1336,24 +1339,60 @@ def render_step6(results_dir):
         if not require_participant_id():
             st.stop()
         append_csv(
-            Path(results_dir) / "hci_questionnaire_log.csv",
+            Path(results_dir)/
+            "hci_questionnaire_log.csv",
+        
             {
-                "timestamp": datetime.now().isoformat(timespec="seconds"),
-                "participant_id": st.session_state.participant_id,
-                "stability_visualization_understanding": q1,
-                "heatmap_helpfulness": q2,
-                "hv_igd_understanding": q3,
-                "algorithm_trust": q4,
-                "recommendation_trust": q5,
-                "verification_support": q6,
-                "platform_usability": q7,
-                "feedback": feedback,
-                "decision_factor": q_open1,
-                "helpful_explanation": q_open2,
-                "confusion_point": q_open3,
-            },
+        
+                "timestamp":
+                datetime.now().isoformat(
+                    timespec="seconds"
+                ),
+        
+                "participant_id":
+                st.session_state.participant_id,
+        
+        
+                # ===== Trust =====
+        
+                "stability_visualization_understanding":
+                q1,
+        
+                "heatmap_helpfulness":
+                q2,
+        
+                "hv_igd_understanding":
+                q3,
+        
+                "algorithm_trust_score":
+                q4,
+        
+                "recommendation_trust_score":
+                q5,
+        
+                "verification_support":
+                q6,
+        
+                "platform_usability":
+                q7,
+        
+        
+                # ===== Open question =====
+        
+                "feedback":
+                feedback,
+        
+                "decision_factor":
+                q_open1,
+        
+                "helpful_explanation":
+                q_open2,
+        
+                "confusion_point":
+                q_open3
+        
+            }
         )
-
         log_event(results_dir, "questionnaire_submitted")
         st.success("任務完成")
 
